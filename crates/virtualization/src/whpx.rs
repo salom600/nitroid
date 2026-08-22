@@ -26,28 +26,24 @@ use nitroid_core::{InstanceConfig, Result};
 use parking_lot::Mutex;
 use tracing::info;
 use windows::core::PCSTR;
-use windows::Win32::Foundation::{CloseHandle, HMODULE};
-use windows::Win32::System::LibraryLoader::{GetModuleHandleA, LoadLibraryA};
+use windows::Win32::System::LibraryLoader::LoadLibraryA;
 
 use crate::traits::{Backend, BackendCapabilities, BackendInfo, InputEvent, VmHandle};
 use nitroid_core::CoreError;
 
 /// Quick availability check — does `WinHvPlatform.dll` exist and can it be
-/// loaded?
+/// loaded? We don't keep the loaded handle around (the OS will keep the DLL
+/// loaded for the lifetime of the process once we touch it), which lets the
+/// backend be `Send + Sync` without an `unsafe impl` block.
 pub fn is_available() -> bool {
-    unsafe {
-        let h = LoadLibraryA(PCSTR(b"WinHvPlatform.dll\0".as_ptr()));
-        if h.is_invalid() {
-            return false;
-        }
-        let _ = CloseHandle(h);
-        true
-    }
+    unsafe { LoadLibraryA(PCSTR(b"WinHvPlatform.dll\0".as_ptr())).is_ok() }
 }
 
 pub struct WhpxBackend {
-    #[allow(dead_code)]
-    module: HMODULE,
+    /// Set to `true` once the constructor has confirmed `WinHvPlatform.dll`
+    /// loaded successfully. Stored as a plain `bool` so the struct is `Send +
+    /// Sync` by default.
+    _loaded: bool,
 }
 
 impl WhpxBackend {
@@ -58,15 +54,7 @@ impl WhpxBackend {
                     .into(),
             ));
         }
-        unsafe {
-            // We use GetModuleHandleA instead of LoadLibraryA here so we
-            // don't hold a real reference — the OS keeps the DLL loaded as
-            // long as the host process is alive.
-            let module = GetModuleHandleA(PCSTR(b"WinHvPlatform.dll\0".as_ptr())).map_err(|e| {
-                CoreError::VirtualizationUnavailable(format!("GetModuleHandleA: {e}"))
-            })?;
-            Ok(Self { module })
-        }
+        Ok(Self { _loaded: true })
     }
 }
 

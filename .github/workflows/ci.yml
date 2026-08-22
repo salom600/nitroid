@@ -18,11 +18,10 @@ env:
   CARGO_NET_RETRY: 5
   RUSTUP_MAX_RETRIES: 5
   # Android-x86 9.0-r2 (Pie) — stable, widely-tested, ~900 MB ISO. We use
-  # the OSDN mirror because it serves direct file downloads (SourceForge
-  # returns HTML redirect pages that Invoke-WebRequest can't follow on
-  # Windows).
+  # the SourceForge mirror which redirects to a CDN (zenlayer.dl.sourceforge.net).
+  # The redirect target varies — curl -L follows it transparently.
   ANDROID_X86_VERSION: "9.0-r2"
-  ANDROID_X86_URL: "https://osdn.net/projects/android-x86/releases/71622/download/android-x86_64-9.0-r2.iso"
+  ANDROID_X86_URL: "https://downloads.sourceforge.net/project/android-x86/Release%209.0/android-x86_64-9.0-r2.iso"
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────
@@ -170,21 +169,15 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts\windows
           Write-Host "Downloading $env:ANDROID_X86_URL ..."
-          # Use Bits-Transfer for large file downloads — Invoke-WebRequest
-          # doesn't always follow redirects correctly on SourceForge.
-          $ProgressPreference = 'SilentlyContinue'
-          $retries = 5
-          $delay = 30
-          for ($i = 1; $i -le $retries; $i++) {
-            try {
-              Invoke-WebRequest -Uri $env:ANDROID_X86_URL -OutFile artifacts\windows\android.iso -TimeoutSec 3600
-              break
-            } catch {
-              Write-Host "Attempt $i failed: $_"
-              if ($i -eq $retries) { throw $_ }
-              Start-Sleep -Seconds $delay
-              $delay *= 2
-            }
+          # Use curl.exe (available on Windows runners since 2022) instead of
+          # Invoke-WebRequest — PowerShell's Invoke-WebRequest doesn't follow
+          # SourceForge's JS redirects correctly.
+          curl.exe --fail --location --retry 5 --retry-delay 30 `
+                   --connect-timeout 60 --max-time 3600 `
+                   -o artifacts\windows\android.iso `
+                   "$env:ANDROID_X86_URL"
+          if ($LASTEXITCODE -ne 0) {
+            throw "curl failed with exit code $LASTEXITCODE"
           }
           $size = (Get-Item artifacts\windows\android.iso).Length
           Write-Host "Downloaded size: $size bytes"

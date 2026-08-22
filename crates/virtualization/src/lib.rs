@@ -10,6 +10,7 @@
 //! directly, with virtio devices for network, disk, and input.
 
 pub mod boot;
+pub mod guest_memory;
 
 #[cfg(target_os = "linux")]
 pub mod kvm;
@@ -24,7 +25,8 @@ pub use kvm::KvmBackend;
 #[cfg(target_os = "windows")]
 pub use whpx::WhpxBackend;
 
-pub use traits::{Backend, BackendCapabilities, BackendInfo, VmHandle};
+pub use guest_memory::{from_single_region, GuestMemory, MemoryRegion, SharedGuestMemory};
+pub use traits::{Backend, BackendCapabilities, BackendInfo, InputEvent, VmHandle};
 
 use nitroid_core::{AccelBackend, CoreError, Result};
 

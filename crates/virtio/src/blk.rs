@@ -10,12 +10,14 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
-use crate::queue::VirtQueue;
+use crate::queue::{VirtQueue, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE};
 use crate::transport::DeviceId;
 use crate::VirtioDevice;
+use nitroid_core::CoreError;
 use nitroid_core::Result;
+use nitroid_virtualization::GuestMemory;
 
 /// virtio-blk request header as defined by the virtio 1.2 spec.
 #[repr(C)]
@@ -119,29 +121,136 @@ impl VirtioDevice for VirtioBlk {
         1
     }
 
-    fn process_queue(&self, _queue_idx: usize, queue: &VirtQueue) -> Result<usize> {
-        let pending = queue.pending();
-        if pending == 0 {
-            return Ok(0);
+    fn process_queue(
+        &self,
+        _queue_idx: usize,
+        queue: &mut VirtQueue,
+        mem: &GuestMemory,
+    ) -> Result<usize> {
+        let mut processed = 0;
+        // Process up to 64 requests per call to avoid starving the vCPU.
+        for _ in 0..64 {
+            let pending = queue.pending(mem)?;
+            if pending == 0 {
+                break;
+            }
+            match self.process_one_request(queue, mem) {
+                Ok(()) => processed += 1,
+                Err(e) => {
+                    warn!(error = %e, "virtio-blk: failed to process request");
+                    break;
+                }
+            }
         }
-        // The actual descriptor parsing requires access to guest memory
-        // (the desc/avail/used rings live there). For the scaffold we just
-        // mark all pending descriptors as completed — this lets the guest
-        // boot progress through device probe without hanging.
-        for _ in 0..pending {
-            queue.complete();
+        if processed > 0 {
+            debug!(processed, "virtio-blk: processed requests");
         }
-        if pending > 0 {
-            warn!(
-                pending,
-                "virtio-blk: {pending} requests stubbed (guest memory access not yet wired)"
-            );
-        }
-        Ok(pending as usize)
+        Ok(processed)
     }
 
     fn reset(&self) {
         // No internal state to reset — the queue resets itself.
+    }
+}
+
+impl VirtioBlk {
+    /// Process one request from the queue. Walks the descriptor chain,
+    /// reads/writes the backing file, and pushes the result to the used ring.
+    fn process_one_request(&self, queue: &mut VirtQueue, mem: &GuestMemory) -> Result<()> {
+        let head_idx = match queue.pop_avail(mem)? {
+            Some(idx) => idx,
+            None => return Ok(()),
+        };
+
+        // Walk the descriptor chain starting at head_idx.
+        let mut chain = Vec::new();
+        let mut idx = head_idx;
+        for _ in 0..32 {
+            let desc = queue.read_descriptor(mem, idx)?;
+            chain.push(desc);
+            if desc.flags & VIRTQ_DESC_F_NEXT == 0 {
+                break;
+            }
+            idx = desc.next;
+        }
+
+        if chain.len() < 3 {
+            // virtio-blk requires at least: header + data + status
+            warn!(chain_len = chain.len(), "virtio-blk: chain too short");
+            queue.push_used(mem, head_idx as u32, 0)?;
+            return Ok(());
+        }
+
+        // Layout: chain[0] = read-only header, chain[1] = data (read or write),
+        // chain[2] = write-only status.
+        let header_desc = &chain[0];
+        let data_desc = &chain[1];
+        let status_desc = &chain[2];
+
+        // Read the request header from guest memory.
+        let mut header_buf = [0u8; 16];
+        if header_desc.len < 16 {
+            return Err(CoreError::Backend(
+                "virtio-blk: header descriptor too short".into(),
+            ));
+        }
+        mem.read_into(header_desc.addr, &mut header_buf)?;
+        let kind = u32::from_le_bytes(header_buf[0..4].try_into().unwrap());
+        let sector = u64::from_le_bytes(header_buf[8..16].try_into().unwrap());
+
+        let mut total_len = 0;
+        let mut status = 0u8; // 0 = success, 1 = error
+
+        match kind {
+            VIRTIO_BLK_T_IN => {
+                // Read from the backing file into the data descriptor.
+                // The data descriptor must be writable.
+                if data_desc.flags & VIRTQ_DESC_F_WRITE == 0 {
+                    warn!("virtio-blk: read request data descriptor is not writable");
+                    status = 1;
+                } else {
+                    let mut buf = vec![0u8; data_desc.len as usize];
+                    match self.read(sector, &mut buf) {
+                        Ok(()) => {
+                            mem.write(data_desc.addr, &buf)?;
+                            total_len = buf.len() as u32;
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "virtio-blk: read failed");
+                            status = 1;
+                        }
+                    }
+                }
+            }
+            VIRTIO_BLK_T_OUT => {
+                // Write from the data descriptor to the backing file.
+                let mut buf = vec![0u8; data_desc.len as usize];
+                mem.read_into(data_desc.addr, &mut buf)?;
+                if let Err(e) = self.write(sector, &buf) {
+                    warn!(error = %e, "virtio-blk: write failed");
+                    status = 1;
+                }
+            }
+            VIRTIO_BLK_T_FLUSH => {
+                if let Err(e) = self.flush() {
+                    warn!(error = %e, "virtio-blk: flush failed");
+                    status = 1;
+                }
+            }
+            _ => {
+                warn!(kind, "virtio-blk: unhandled request type");
+                status = 1;
+            }
+        }
+
+        // Write the status byte to the status descriptor.
+        mem.write(status_desc.addr, &[status])?;
+        // Total length to report = data bytes + 1 (status byte).
+        total_len = total_len.saturating_add(1);
+
+        // Push the result to the used ring.
+        queue.push_used(mem, head_idx as u32, total_len)?;
+        Ok(())
     }
 }
 

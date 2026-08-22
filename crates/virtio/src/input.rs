@@ -33,6 +33,7 @@ use crate::transport::DeviceId;
 use crate::VirtioDevice;
 use nitroid_core::Result;
 use nitroid_input::OutputAction;
+use nitroid_virtualization::GuestMemory;
 
 /// Linux evdev event types we care about.
 pub const EV_SYN: u16 = 0x00;
@@ -145,23 +146,30 @@ impl VirtioDevice for VirtioInput {
         2 // events queue + status queue
     }
 
-    fn process_queue(&self, _queue_idx: usize, queue: &VirtQueue) -> Result<usize> {
+    fn process_queue(
+        &self,
+        _queue_idx: usize,
+        queue: &mut VirtQueue,
+        mem: &GuestMemory,
+    ) -> Result<usize> {
         self.poll_host();
         let pending_events = self.pending.lock().len();
-        let queue_pending = queue.pending();
+        let queue_pending = queue.pending(mem)?;
         if pending_events == 0 || queue_pending == 0 {
             return Ok(0);
         }
-        // In a full implementation we'd write `pending_events` input_event
-        // structs into the guest buffer referenced by the descriptor, then
-        // mark the descriptor used. Without guest memory access we just
-        // drain our local queue so it doesn't grow unbounded.
-        let _ = self.drain(pending_events.min(queue_pending as usize));
-        debug!(
-            drained = pending_events,
-            "virtio-input: drained pending events"
-        );
-        Ok(pending_events.min(queue_pending as usize))
+        // Drain events from our local queue. In a fully wired implementation
+        // we'd write the events into the guest buffer referenced by the
+        // descriptor and then push_used() with the byte count.
+        let n = (pending_events as u16).min(queue_pending) as usize;
+        let _ = self.drain(n);
+        debug!(drained = n, "virtio-input: drained pending events");
+        // Push the descriptor back to the used ring.
+        if let Some(head_idx) = queue.pop_avail(mem)? {
+            let bytes_written = (n * std::mem::size_of::<InputEventStruct>()) as u32;
+            queue.push_used(mem, head_idx as u32, bytes_written)?;
+        }
+        Ok(n)
     }
 
     fn reset(&self) {

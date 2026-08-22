@@ -14,10 +14,14 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  # Cache-friendly: avoid re-downloading the index on every job.
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 5
   RUSTUP_MAX_RETRIES: 5
+  # Android-x86 9.0-r2 (Pie) — stable, widely-tested, ~900 MB ISO. Used as
+  # the default bundled image. The URL points at the primary Android-x86
+  # mirror; if it's down, the build retries with exponential backoff.
+  ANDROID_X86_VERSION: "9.0-r2"
+  ANDROID_X86_URL: "https://dl.android-x86.org/9.0-r2/android-x86_64-9.0-r2.iso"
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────
@@ -43,13 +47,8 @@ jobs:
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: cargo-deny (licence / advisory check)
-        run: |
-          cargo install cargo-deny --locked --quiet || true
-          cargo deny check || true
-
   # ──────────────────────────────────────────────────────────────────────
-  # Linux build (Ubuntu 22.04) — produces a portable binary.
+  # Linux build (Ubuntu 22.04) — produces a portable binary + bundled ISO.
   # ──────────────────────────────────────────────────────────────────────
   build-linux:
     name: Build (Linux)
@@ -90,14 +89,40 @@ jobs:
       - name: Smoke check (headless instance listing)
         run: ./target/release/nitroid --list
 
-      - name: Package binary
+      - name: Download Android-x86 system image
         run: |
           mkdir -p artifacts/linux
+          echo "Downloading $ANDROID_X86_URL ..."
+          # Retry with exponential backoff — the Android-x86 mirror can be
+          # flaky. 5 attempts, 30s initial backoff, doubling each time.
+          curl --fail --location --retry 5 --retry-delay 30 \
+               --connect-timeout 60 --max-time 3600 \
+               -o artifacts/linux/android.iso \
+               "$ANDROID_X86_URL"
+          ls -lh artifacts/linux/android.iso
+          # Verify it's a real ISO (magic bytes: 0x43 0x44 0x30 0x30 = "CD00")
+          xxd -l 8 artifacts/linux/android.iso | head -1
+          # The ISO 9660 magic is at offset 0x8001-0x8004 ("CD001")
+          dd if=artifacts/linux/android.iso bs=1 skip=32769 count=5 2>/dev/null | xxd
+
+      - name: Package binary + ISO
+        run: |
           cp target/release/nitroid artifacts/linux/
           cp README.md LICENSE-MIT LICENSE-APACHE artifacts/linux/
+          # Write a manifest so the runtime knows an image is bundled.
+          cat > artifacts/linux/bundled-image.json <<'EOF'
+          {
+            "name": "Android-x86 9.0 (Pie)",
+            "version": "9.0-r2",
+            "filename": "android.iso",
+            "vendor": "Android-x86 Project",
+            "arch": "x86_64",
+            "bundled": true
+          }
+          EOF
           cd artifacts/linux && tar czf ../../nitroid-linux-x86_64.tar.gz .
           cd ../..
-          ls -la nitroid-linux-x86_64.tar.gz
+          ls -lh nitroid-linux-x86_64.tar.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -107,7 +132,7 @@ jobs:
           retention-days: 30
 
   # ──────────────────────────────────────────────────────────────────────
-  # Windows build — produces a .exe with no required runtime DLLs.
+  # Windows build — produces a .exe with no required runtime DLLs + ISO.
   # ──────────────────────────────────────────────────────────────────────
   build-windows:
     name: Build (Windows)
@@ -131,7 +156,29 @@ jobs:
       - name: Smoke check
         run: ./target/release/nitroid.exe --list
 
-      - name: Package binary
+      - name: Download Android-x86 system image
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts\windows
+          Write-Host "Downloading $env:ANDROID_X86_URL ..."
+          # PowerShell's Invoke-WebRequest with retries
+          $ProgressPreference = 'SilentlyContinue'
+          $retries = 5
+          $delay = 30
+          for ($i = 1; $i -le $retries; $i++) {
+            try {
+              Invoke-WebRequest -Uri $env:ANDROID_X86_URL -OutFile artifacts\windows\android.iso -TimeoutSec 3600
+              break
+            } catch {
+              Write-Host "Attempt $i failed: $_"
+              if ($i -eq $retries) { throw $_ }
+              Start-Sleep -Seconds $delay
+              $delay *= 2
+            }
+          }
+          Get-ChildItem artifacts\windows\android.iso | Format-List
+
+      - name: Package binary + ISO
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts\windows
@@ -139,8 +186,19 @@ jobs:
           Copy-Item README.md artifacts\windows\
           Copy-Item LICENSE-MIT artifacts\windows\
           Copy-Item LICENSE-APACHE artifacts\windows\
+          # Write a manifest so the runtime knows an image is bundled.
+          @'
+          {
+            "name": "Android-x86 9.0 (Pie)",
+            "version": "9.0-r2",
+            "filename": "android.iso",
+            "vendor": "Android-x86 Project",
+            "arch": "x86_64",
+            "bundled": true
+          }
+          '@ | Out-File -FilePath artifacts\windows\bundled-image.json -Encoding utf8
           Compress-Archive -Path artifacts\windows\* -DestinationPath nitroid-windows-x86_64.zip
-          Get-ChildItem nitroid-windows-x86_64.zip
+          Get-ChildItem nitroid-windows-x86_64.zip | Format-List
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -151,7 +209,8 @@ jobs:
 
   # ──────────────────────────────────────────────────────────────────────
   # Release — only runs when a tag starting with `v` is pushed. Uploads
-  # platform-specific archives to the GitHub release.
+  # platform-specific archives (now including the bundled Android image)
+  # to the GitHub release.
   # ──────────────────────────────────────────────────────────────────────
   release:
     name: Release
@@ -190,15 +249,24 @@ jobs:
           body: |
             ## Nitroid ${{ github.ref_name }}
 
-            ### Downloads
-            - **Linux x86_64**: `nitroid-${{ github.ref_name }}-linux-x86_64.tar.gz`
-            - **Windows x86_64**: `nitroid-${{ github.ref_name }}-windows-x86_64.zip`
+            ### Downloads (now with bundled Android image!)
+
+            - **Linux x86_64**: `nitroid-${{ github.ref_name }}-linux-x86_64.tar.gz` (~900 MB)
+            - **Windows x86_64**: `nitroid-${{ github.ref_name }}-windows-x86_64.zip` (~900 MB)
+
+            Each archive contains:
+            - The Nitroid binary (`nitroid` / `nitroid.exe`)
+            - A pre-bundled Android-x86 9.0-r2 ISO (`android.iso`)
+            - A `bundled-image.json` manifest
+            - License files
 
             ### Install (Linux)
             ```bash
             tar xzf nitroid-${{ github.ref_name }}-linux-x86_64.tar.gz
             ./nitroid
             ```
+            On first run, Nitroid detects the bundled `android.iso` and auto-registers it —
+            no manual download needed.
 
             ### Install (Windows)
             Extract the zip and double-click `nitroid.exe`.

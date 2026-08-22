@@ -35,6 +35,17 @@ fn main() -> anyhow::Result<()> {
         "registry loaded"
     );
 
+    // On first run, look for a bundled Android ISO next to the executable
+    // (or in the cache dir). If found, auto-register it so the user doesn't
+    // have to go through the downloader panel.
+    if manager.list_images().is_empty() {
+        if let Some(image) =
+            nitroid_core::register_bundled_image(|img| manager.register_image(img).map(|_| ()))
+        {
+            info!(name = %image.name, "auto-registered bundled Android image");
+        }
+    }
+
     // Probe the hypervisor backend. We do this eagerly so the UI can display
     // accurate info on first paint, but we don't fail the startup if the
     // backend is unavailable — the user can still browse instances, register

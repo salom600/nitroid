@@ -25,6 +25,7 @@ use crate::queue::VirtQueue;
 use crate::transport::DeviceId;
 use crate::VirtioDevice;
 use nitroid_core::Result;
+use nitroid_virtualization::GuestMemory;
 
 /// virtio-gpu command types (subset).
 pub const VIRTIO_GPU_CMD_GET_DISPLAY_INFO: u32 = 0x0100;
@@ -67,6 +68,9 @@ pub struct VirtioGpu {
     /// The latest host-side framebuffer (raw RGBA8 pixels). The graphics
     /// crate reads this on every present call.
     framebuffer: Arc<Mutex<Vec<u8>>>,
+    /// Set to `true` when the guest flushes a frame so the renderer knows
+    /// to re-upload it.
+    dirty_marker: Arc<Mutex<bool>>,
     fb_width: u32,
     fb_height: u32,
 }
@@ -85,6 +89,7 @@ impl VirtioGpu {
                 y: 0,
             }])),
             framebuffer: Arc::new(Mutex::new(vec![0u8; size])),
+            dirty_marker: Arc::new(Mutex::new(false)),
             fb_width: width,
             fb_height: height,
         }
@@ -167,6 +172,57 @@ impl VirtioGpu {
     pub fn dimensions(&self) -> (u32, u32) {
         (self.fb_width, self.fb_height)
     }
+
+    /// Dispatch a virtio-gpu command. Reads additional bytes from the
+    /// descriptor as needed and updates the device's internal state.
+    fn dispatch_command(
+        &self,
+        cmd_type: u32,
+        mem: &GuestMemory,
+        desc: &crate::queue::Descriptor,
+    ) -> Result<()> {
+        match cmd_type {
+            VIRTIO_GPU_CMD_RESOURCE_CREATE_2D => {
+                if desc.len >= 20 {
+                    let mut buf = [0u8; 20];
+                    mem.read_into(desc.addr + 8, &mut buf)?;
+                    let resource_id = u32::from_le_bytes(buf[0..4].try_into().unwrap());
+                    let format = u32::from_le_bytes(buf[4..8].try_into().unwrap());
+                    let width = u32::from_le_bytes(buf[8..12].try_into().unwrap());
+                    let height = u32::from_le_bytes(buf[12..16].try_into().unwrap());
+                    self.create_resource_2d(resource_id, width, height, format);
+                }
+            }
+            VIRTIO_GPU_CMD_RESOURCE_UNREF => {
+                if desc.len >= 12 {
+                    let mut buf = [0u8; 4];
+                    mem.read_into(desc.addr + 8, &mut buf)?;
+                    let resource_id = u32::from_le_bytes(buf);
+                    self.destroy_resource(resource_id);
+                }
+            }
+            VIRTIO_GPU_CMD_SET_SCANOUT => {
+                if desc.len >= 24 {
+                    let mut buf = [0u8; 16];
+                    mem.read_into(desc.addr + 8, &mut buf)?;
+                    let scanout_id = u32::from_le_bytes(buf[0..4].try_into().unwrap());
+                    let resource_id = u32::from_le_bytes(buf[4..8].try_into().unwrap());
+                    let w = u32::from_le_bytes(buf[8..12].try_into().unwrap());
+                    let h = u32::from_le_bytes(buf[12..16].try_into().unwrap());
+                    self.set_scanout(scanout_id, resource_id, 0, 0, w, h);
+                }
+            }
+            VIRTIO_GPU_CMD_RESOURCE_FLUSH => {
+                // Mark the framebuffer as dirty so the next present() call
+                // uploads it to the WGPU texture.
+                *self.dirty_marker.lock() = true;
+            }
+            _ => {
+                debug!(cmd_type, "virtio-gpu: unhandled command type");
+            }
+        }
+        Ok(())
+    }
 }
 
 impl VirtioDevice for VirtioGpu {
@@ -186,25 +242,49 @@ impl VirtioDevice for VirtioGpu {
         2 // ctrl + cursor
     }
 
-    fn process_queue(&self, _queue_idx: usize, queue: &VirtQueue) -> Result<usize> {
-        let pending = queue.pending();
-        if pending == 0 {
-            return Ok(0);
+    fn process_queue(
+        &self,
+        _queue_idx: usize,
+        queue: &mut VirtQueue,
+        mem: &GuestMemory,
+    ) -> Result<usize> {
+        let mut processed = 0;
+        for _ in 0..64 {
+            let pending = queue.pending(mem)?;
+            if pending == 0 {
+                break;
+            }
+            let head_idx = match queue.pop_avail(mem)? {
+                Some(idx) => idx,
+                None => break,
+            };
+            // Read the command header (8 bytes: type u32 + flags u32 + fence
+            // id u64 + ctx_id u32 + padding u32 = 24 bytes total in the
+            // ctrl header, but we only need the type for dispatch).
+            let desc = queue.read_descriptor(mem, head_idx)?;
+            if desc.len >= 8 {
+                let mut header = [0u8; 8];
+                if mem.read_into(desc.addr, &mut header).is_ok() {
+                    let cmd_type = u32::from_le_bytes(header[0..4].try_into().unwrap());
+                    debug!(cmd_type, "virtio-gpu: received command");
+                    self.dispatch_command(cmd_type, mem, &desc)?;
+                }
+            }
+            // Push the descriptor back as used.
+            queue.push_used(mem, head_idx as u32, desc.len)?;
+            processed += 1;
         }
-        // The actual command parsing requires guest memory access. For the
-        // scaffold we mark all pending descriptors as completed so the guest
-        // doesn't hang during device probe.
-        for _ in 0..pending {
-            queue.complete();
+        if processed > 0 {
+            debug!(processed, "virtio-gpu: processed commands");
         }
-        debug!(pending, "virtio-gpu: processed (stubbed) commands");
-        Ok(pending as usize)
+        Ok(processed)
     }
 
     fn reset(&self) {
         self.resources.lock().clear();
         *self.scanouts.lock() = vec![Scanout::default()];
         self.framebuffer.lock().fill(0);
+        *self.dirty_marker.lock() = false;
     }
 }
 

@@ -193,24 +193,63 @@ pub struct LoadedKernel {
 
 /// Extract the kernel and initrd from an Android-x86 ISO/IMG.
 ///
-/// The actual extraction requires ISO 9660 parsing, which we don't do here.
-/// For the scaffold we read the file and let the guest's bootloader handle
-/// the parsing. A real implementation would use the `iso9660` crate.
-pub fn load_kernel_from_image(_cfg: &BootConfig) -> Result<LoadedKernel> {
-    // The full ISO parsing path:
-    //
-    //   1. Open the ISO file.
-    //   2. Parse the ISO 9660 volume descriptor.
-    //   3. Walk the root directory for "/boot/vmlinuz" and "/boot/initrd.img".
-    //   4. Read both files into memory.
-    //   5. Return LoadedKernel { kernel_bytes, initrd_bytes, ... }.
-    //
-    // We don't ship an ISO 9660 parser in this scaffold to keep dependencies
-    // minimal — adding it is a follow-up milestone. Until then we return an
-    // error so callers know the path isn't ready.
-    Err(CoreError::Backend(
-        "kernel extraction from ISO is not yet implemented — requires ISO 9660 parser. See docs/ARCHITECTURE.md.".into(),
-    ))
+/// Uses the `nitroid-iso9660` parser to walk the ISO filesystem and find
+/// the kernel at `/boot/vmlinuz` and the initrd at `/boot/initrd.img`.
+/// Real Android-x86 ISOs use these standard paths.
+pub fn load_kernel_from_image(cfg: &BootConfig) -> Result<LoadedKernel> {
+    use nitroid_iso9660::IsoReader;
+    use std::path::Path;
+
+    let path: &Path = &cfg.image_path;
+    if !path.exists() {
+        return Err(CoreError::Backend(format!(
+            "image file not found: {}",
+            path.display()
+        )));
+    }
+
+    info!(path = %path.display(), "parsing ISO 9660 image for kernel extraction");
+    let mut iso = IsoReader::open(path)
+        .map_err(|e| CoreError::Backend(format!("ISO 9660 parse failed: {e}")))?;
+
+    // The Android-x86 boot layout puts the kernel and initrd under /boot.
+    // Some images use lowercase, some uppercase — the parser normalises both.
+    let kernel_bytes = match iso
+        .read_path("boot/vmlinuz")
+        .map_err(|e| CoreError::Backend(format!("ISO read failed: {e}")))?
+    {
+        Some(bytes) => {
+            info!(bytes = bytes.len(), "extracted kernel");
+            bytes
+        }
+        None => {
+            return Err(CoreError::Backend(
+                "kernel image (boot/vmlinuz) not found in ISO".into(),
+            ));
+        }
+    };
+
+    let initrd_bytes = iso
+        .read_path("boot/initrd.img")
+        .map_err(|e| CoreError::Backend(format!("ISO read failed: {e}")))?;
+    if let Some(ref initrd) = initrd_bytes {
+        info!(bytes = initrd.len(), "extracted initrd");
+    } else {
+        tracing::warn!(
+            "no initrd found in ISO — guest will need root= cmdline pointing to /dev/vda"
+        );
+    }
+
+    let cmdline = build_cmdline(cfg);
+    let initrd_load_addr = compute_initrd_addr(kernel_bytes.len() as u64, cfg.memory_mb);
+
+    Ok(LoadedKernel {
+        kernel_bytes,
+        initrd_bytes,
+        cmdline,
+        kernel_load_addr: KERNEL_LOAD_ADDR,
+        initrd_load_addr,
+    })
 }
 
 /// Compute the address where the initrd should be loaded based on the
@@ -316,12 +355,29 @@ mod tests {
 
     #[test]
     fn bootloader_caches_loaded_kernel() {
-        // Even though load_kernel_from_image returns an error in the scaffold,
-        // the cache mechanism itself works.
+        // load_kernel_from_image now actually parses ISOs — but since we don't
+        // have a real Android ISO in the test environment, the call returns
+        // an error and the cache remains None. We verify the cache mechanism
+        // is wired correctly.
         let loader = BootLoader::new(BootConfig::default());
         assert!(loader.cache.lock().is_none());
-        // Loading fails (no ISO parser yet) but the cache remains None.
+        // Loading fails (no real ISO available in test env), so the cache stays None.
         let _ = loader.loaded();
         assert!(loader.cache.lock().is_none());
+    }
+
+    #[test]
+    fn load_kernel_errors_on_missing_file() {
+        let cfg = BootConfig {
+            image_path: std::path::PathBuf::from("/nonexistent/path.iso"),
+            ..Default::default()
+        };
+        let result = load_kernel_from_image(&cfg);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not found") || err_msg.contains("No such file"),
+            "expected file-not-found error, got: {err_msg}"
+        );
     }
 }

@@ -54,6 +54,9 @@ pub enum CoreError {
     #[error("translation error: {0}")]
     Translation(String),
 
+    #[error("ISO 9660 parse error: {0}")]
+    Iso9660(String),
+
     #[error("backend error: {0}")]
     Backend(String),
 

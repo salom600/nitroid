@@ -5,12 +5,14 @@
 //! system image registry, and the in-memory representation of a running
 //! (or stopped) emulator instance.
 
+pub mod bundled;
 pub mod config;
 pub mod error;
 pub mod image;
 pub mod instance;
 pub mod paths;
 
+pub use bundled::{find_bundled_image, register_bundled_image, BundledImageManifest};
 pub use config::{AccelBackend, CpuArch, EmulatorConfig, GraphicsBackend};
 pub use error::{CoreError, Result};
 pub use image::SystemImage;

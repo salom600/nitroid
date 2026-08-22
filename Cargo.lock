@@ -1917,7 +1917,7 @@ dependencies = [
 
 [[package]]
 name = "nitroid"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "eframe",
@@ -1938,7 +1938,7 @@ dependencies = [
 
 [[package]]
 name = "nitroid-core"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1954,7 +1954,7 @@ dependencies = [
 
 [[package]]
 name = "nitroid-downloader"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -1971,7 +1971,7 @@ dependencies = [
 
 [[package]]
 name = "nitroid-graphics"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "nitroid-core",
@@ -1985,7 +1985,7 @@ dependencies = [
 
 [[package]]
 name = "nitroid-input"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "nitroid-core",
@@ -1999,7 +1999,7 @@ dependencies = [
 
 [[package]]
 name = "nitroid-instances"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "dashmap",
@@ -2014,8 +2014,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nitroid-iso9660"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "nitroid-translation"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "dashmap",
@@ -2027,7 +2037,7 @@ dependencies = [
 
 [[package]]
 name = "nitroid-ui"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "eframe",
@@ -2045,12 +2055,13 @@ dependencies = [
 
 [[package]]
 name = "nitroid-virtio"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
  "nitroid-core",
  "nitroid-input",
+ "nitroid-virtualization",
  "parking_lot",
  "serde",
  "serde_json",
@@ -2061,13 +2072,14 @@ dependencies = [
 
 [[package]]
 name = "nitroid-virtualization"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "kvm-bindings",
  "kvm-ioctls",
  "libc",
  "nitroid-core",
+ "nitroid-iso9660",
  "parking_lot",
  "thiserror 1.0.69",
  "tracing",

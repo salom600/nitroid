@@ -48,6 +48,7 @@ pub use queue::{VirtQueue, VirtQueueError};
 pub use transport::{DeviceId, PciTransport, VirtioTransport};
 
 use nitroid_core::Result;
+use nitroid_virtualization::GuestMemory;
 
 /// A virtio device. Every device implements this trait so the run loop can
 /// dispatch uniformly.
@@ -65,7 +66,14 @@ pub trait VirtioDevice: Send + Sync {
 
     /// Process incoming virtqueue traffic. Called by the run loop after
     /// each vCPU exit. Returns the number of descriptors processed.
-    fn process_queue(&self, queue_idx: usize, queue: &VirtQueue) -> Result<usize>;
+    /// `queue` is the queue at index `queue_idx`, with access to the guest
+    /// memory backing the descriptor rings.
+    fn process_queue(
+        &self,
+        queue_idx: usize,
+        queue: &mut VirtQueue,
+        mem: &GuestMemory,
+    ) -> Result<usize>;
 
     /// Reset the device to its initial state.
     fn reset(&self);

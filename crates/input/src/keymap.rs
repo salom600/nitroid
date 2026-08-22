@@ -172,7 +172,11 @@ mod tests {
         km.bind_key(
             scancodes::KEY_SPACE,
             KeyAction::Tap {
-                target: TouchTarget { x: 640, y: 360, radius: None },
+                target: TouchTarget {
+                    x: 640,
+                    y: 360,
+                    radius: None,
+                },
             },
         );
         let s = serde_json::to_string(&km).unwrap();

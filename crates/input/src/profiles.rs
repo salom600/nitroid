@@ -4,7 +4,7 @@
 //! preferences, but having a sensible default per game means new users get
 //! a playable experience within minutes.
 
-use crate::keymap::{KeyAction, Keymap, MouseRegion, MouseButton, TouchTarget, scancodes};
+use crate::keymap::{scancodes, KeyAction, Keymap, MouseButton, MouseRegion, TouchTarget};
 
 pub type ProfileId = &'static str;
 
@@ -41,35 +41,95 @@ fn pubg_profile() -> Keymap {
         y: 360,
         width: 400,
         height: 360,
-        joystick_origin: TouchTarget { x: 200, y: 600, radius: Some(80) },
+        joystick_origin: TouchTarget {
+            x: 200,
+            y: 600,
+            radius: Some(80),
+        },
         sensitivity: 80.0,
     });
 
-    km.bind_key(scancodes::KEY_SPACE, KeyAction::Tap {
-        target: TouchTarget { x: 800, y: 600, radius: None },
-    });
-    km.bind_key(scancodes::KEY_LEFTSHIFT, KeyAction::Hold {
-        target: TouchTarget { x: 700, y: 500, radius: None },
-    });
-    km.bind_key(scancodes::KEY_R, KeyAction::Tap {
-        target: TouchTarget { x: 900, y: 600, radius: None },
-    });
-    km.bind_key(scancodes::KEY_1, KeyAction::Tap {
-        target: TouchTarget { x: 1100, y: 100, radius: None },
-    });
-    km.bind_key(scancodes::KEY_2, KeyAction::Tap {
-        target: TouchTarget { x: 1140, y: 140, radius: None },
-    });
-    km.bind_key(scancodes::KEY_3, KeyAction::Tap {
-        target: TouchTarget { x: 1180, y: 180, radius: None },
-    });
+    km.bind_key(
+        scancodes::KEY_SPACE,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 800,
+                y: 600,
+                radius: None,
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_LEFTSHIFT,
+        KeyAction::Hold {
+            target: TouchTarget {
+                x: 700,
+                y: 500,
+                radius: None,
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_R,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 900,
+                y: 600,
+                radius: None,
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_1,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 1100,
+                y: 100,
+                radius: None,
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_2,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 1140,
+                y: 140,
+                radius: None,
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_3,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 1180,
+                y: 180,
+                radius: None,
+            },
+        },
+    );
 
-    km.bind_mouse(MouseButton::Left, KeyAction::Tap {
-        target: TouchTarget { x: 640, y: 360, radius: None },
-    });
-    km.bind_mouse(MouseButton::Right, KeyAction::Hold {
-        target: TouchTarget { x: 640, y: 360, radius: Some(40) },
-    });
+    km.bind_mouse(
+        MouseButton::Left,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 640,
+                y: 360,
+                radius: None,
+            },
+        },
+    );
+    km.bind_mouse(
+        MouseButton::Right,
+        KeyAction::Hold {
+            target: TouchTarget {
+                x: 640,
+                y: 360,
+                radius: Some(40),
+            },
+        },
+    );
     km
 }
 
@@ -84,19 +144,44 @@ fn free_fire_profile() -> Keymap {
         y: 360,
         width: 400,
         height: 360,
-        joystick_origin: TouchTarget { x: 200, y: 600, radius: Some(80) },
+        joystick_origin: TouchTarget {
+            x: 200,
+            y: 600,
+            radius: Some(80),
+        },
         sensitivity: 80.0,
     });
 
-    km.bind_key(scancodes::KEY_SPACE, KeyAction::Tap {
-        target: TouchTarget { x: 800, y: 600, radius: None },
-    });
-    km.bind_key(scancodes::KEY_R, KeyAction::Tap {
-        target: TouchTarget { x: 900, y: 600, radius: None },
-    });
-    km.bind_mouse(MouseButton::Left, KeyAction::Tap {
-        target: TouchTarget { x: 640, y: 360, radius: None },
-    });
+    km.bind_key(
+        scancodes::KEY_SPACE,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 800,
+                y: 600,
+                radius: None,
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_R,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 900,
+                y: 600,
+                radius: None,
+            },
+        },
+    );
+    km.bind_mouse(
+        MouseButton::Left,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 640,
+                y: 360,
+                radius: None,
+            },
+        },
+    );
     km
 }
 
@@ -105,12 +190,26 @@ fn cod_profile() -> Keymap {
     let mut km = pubg_profile();
     km.name = "Call of Duty Mobile".into();
     km.description = "CoD Mobile default layout".into();
-    km.bind_key(scancodes::KEY_G, KeyAction::Tap {
-        target: TouchTarget { x: 1000, y: 600, radius: None },
-    });
-    km.bind_key(scancodes::KEY_LEFTCTRL, KeyAction::Tap {
-        target: TouchTarget { x: 600, y: 600, radius: None },
-    });
+    km.bind_key(
+        scancodes::KEY_G,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 1000,
+                y: 600,
+                radius: None,
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_LEFTCTRL,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 600,
+                y: 600,
+                radius: None,
+            },
+        },
+    );
     km
 }
 
@@ -126,21 +225,53 @@ fn generic_fps_profile() -> Keymap {
         y: 360,
         width: 400,
         height: 360,
-        joystick_origin: TouchTarget { x: 200, y: 600, radius: Some(80) },
+        joystick_origin: TouchTarget {
+            x: 200,
+            y: 600,
+            radius: Some(80),
+        },
         sensitivity: 80.0,
     });
-    km.bind_mouse(MouseButton::Left, KeyAction::Tap {
-        target: TouchTarget { x: 640, y: 360, radius: None },
-    });
-    km.bind_mouse(MouseButton::Right, KeyAction::Hold {
-        target: TouchTarget { x: 640, y: 360, radius: Some(40) },
-    });
-    km.bind_key(scancodes::KEY_SPACE, KeyAction::Tap {
-        target: TouchTarget { x: 900, y: 600, radius: None },
-    });
-    km.bind_key(scancodes::KEY_R, KeyAction::Tap {
-        target: TouchTarget { x: 1000, y: 600, radius: None },
-    });
+    km.bind_mouse(
+        MouseButton::Left,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 640,
+                y: 360,
+                radius: None,
+            },
+        },
+    );
+    km.bind_mouse(
+        MouseButton::Right,
+        KeyAction::Hold {
+            target: TouchTarget {
+                x: 640,
+                y: 360,
+                radius: Some(40),
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_SPACE,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 900,
+                y: 600,
+                radius: None,
+            },
+        },
+    );
+    km.bind_key(
+        scancodes::KEY_R,
+        KeyAction::Tap {
+            target: TouchTarget {
+                x: 1000,
+                y: 600,
+                radius: None,
+            },
+        },
+    );
     km
 }
 
@@ -159,13 +290,16 @@ fn mmorpg_profile() -> Keymap {
     .iter()
     .enumerate()
     {
-        km.bind_key(*sc, KeyAction::Tap {
-            target: TouchTarget {
-                x: 400 + (i as u32) * 100,
-                y: 600,
-                radius: None,
+        km.bind_key(
+            *sc,
+            KeyAction::Tap {
+                target: TouchTarget {
+                    x: 400 + (i as u32) * 100,
+                    y: 600,
+                    radius: None,
+                },
             },
-        });
+        );
     }
     km
 }
@@ -177,9 +311,14 @@ mod tests {
     #[test]
     fn all_profiles_have_keys() {
         for (id, name, km) in builtin_profiles() {
-            assert!(!km.keys.is_empty() || !km.mouse_regions.is_empty(),
-                "profile {id:?} ({name}) has no bindings");
-            assert!(km.guest_width > 0 && km.guest_height > 0, "profile {id:?} has bad resolution");
+            assert!(
+                !km.keys.is_empty() || !km.mouse_regions.is_empty(),
+                "profile {id:?} ({name}) has no bindings"
+            );
+            assert!(
+                km.guest_width > 0 && km.guest_height > 0,
+                "profile {id:?} has bad resolution"
+            );
         }
     }
 

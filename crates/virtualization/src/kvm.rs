@@ -38,13 +38,17 @@ impl KvmBackend {
     pub fn new() -> Result<Self> {
         if !is_available() {
             return Err(CoreError::VirtualizationUnavailable(
-                "/dev/kvm not available — install qemu-kvm and add your user to the 'kvm' group".into(),
+                "/dev/kvm not available — install qemu-kvm and add your user to the 'kvm' group"
+                    .into(),
             ));
         }
         let kvm = Kvm::new().map_err(|e| {
             CoreError::VirtualizationUnavailable(format!("failed to open /dev/kvm: {e}"))
         })?;
-        info!("KVM backend initialised: API version {}", kvm.get_api_version());
+        info!(
+            "KVM backend initialised: API version {}",
+            kvm.get_api_version()
+        );
         Ok(Self { kvm })
     }
 }
@@ -77,9 +81,10 @@ impl Backend for KvmBackend {
 
     fn create_vm(&self, cfg: &InstanceConfig) -> Result<VmHandle> {
         cfg.validate()?;
-        let vm_fd = self.kvm.create_vm().map_err(|e| {
-            CoreError::Backend(format!("KVM_CREATE_VM failed: {e}"))
-        })?;
+        let vm_fd = self
+            .kvm
+            .create_vm()
+            .map_err(|e| CoreError::Backend(format!("KVM_CREATE_VM failed: {e}")))?;
 
         // Allocate guest memory — one slot of `memory_mb` megabytes at GPA 0.
         let mem_size = (cfg.memory_mb as usize) * 1024 * 1024;

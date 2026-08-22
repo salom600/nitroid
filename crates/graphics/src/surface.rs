@@ -42,9 +42,7 @@ impl Surface {
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
         }))
-        .ok_or_else(|| {
-            nitroid_core::CoreError::Graphics("no suitable GPU adapter found".into())
-        })?;
+        .ok_or_else(|| nitroid_core::CoreError::Graphics("no suitable GPU adapter found".into()))?;
 
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
@@ -63,7 +61,12 @@ impl Surface {
             .iter()
             .copied()
             .find(|f| f.is_srgb())
-            .unwrap_or(caps.formats.first().copied().unwrap_or(wgpu::TextureFormat::Bgra8Unorm));
+            .unwrap_or(
+                caps.formats
+                    .first()
+                    .copied()
+                    .unwrap_or(wgpu::TextureFormat::Bgra8Unorm),
+            );
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
@@ -72,7 +75,11 @@ impl Surface {
             height: height.max(1),
             present_mode: wgpu::PresentMode::Mailbox,
             desired_maximum_frame_latency: 2,
-            alpha_mode: caps.alpha_modes.first().copied().unwrap_or(wgpu::CompositeAlphaMode::Auto),
+            alpha_mode: caps
+                .alpha_modes
+                .first()
+                .copied()
+                .unwrap_or(wgpu::CompositeAlphaMode::Auto),
             view_formats: vec![],
         };
         surface.configure(&device, &config);
@@ -140,34 +147,37 @@ impl Surface {
     }
 
     fn build_blit_pipeline(&self, format: wgpu::TextureFormat) -> wgpu::RenderPipeline {
-        let shader = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("placeholder"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("placeholder.wgsl").into()),
-        });
-        self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("placeholder pipeline"),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        })
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("placeholder"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("placeholder.wgsl").into()),
+            });
+        self.device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("placeholder pipeline"),
+                layout: None,
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            })
     }
 }

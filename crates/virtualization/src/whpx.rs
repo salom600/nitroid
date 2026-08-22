@@ -17,11 +17,10 @@ use tracing::{info, warn};
 use windows::core::PCSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::System::Hypervisor::{
-    WHvCreatePartition, WHvCreateVirtualProcessor, WHvDeletePartition,
-    WHvDeleteVirtualProcessor, WHvGetCapability, WHvPartitionPropertyCodeCapability,
-    WHvPartitionPropertyCodeExtendedVmExits, WHvRunVirtualProcessor, WHvSetPartitionProperty,
-    WHV_CAPABILITY_FEATURES, WHV_PARTITION_HANDLE, WHV_PARTITION_PROPERTY,
-    WHV_PARTITION_PROPERTY_CAPABILITIES, WHV_RUN_VP_EXIT_REASON,
+    WHvCreatePartition, WHvCreateVirtualProcessor, WHvDeletePartition, WHvDeleteVirtualProcessor,
+    WHvGetCapability, WHvPartitionPropertyCodeCapability, WHvPartitionPropertyCodeExtendedVmExits,
+    WHvRunVirtualProcessor, WHvSetPartitionProperty, WHV_CAPABILITY_FEATURES, WHV_PARTITION_HANDLE,
+    WHV_PARTITION_PROPERTY, WHV_PARTITION_PROPERTY_CAPABILITIES, WHV_RUN_VP_EXIT_REASON,
     WHV_VIRTUAL_PROCESSOR_SYNTHETIC_FEATURES,
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, LoadLibraryA};
@@ -51,12 +50,14 @@ impl WhpxBackend {
     pub fn new() -> Result<Self> {
         if !is_available() {
             return Err(CoreError::VirtualizationUnavailable(
-                "WHPX not available. Install Hyper-V from 'Turn Windows features on or off'.".into(),
+                "WHPX not available. Install Hyper-V from 'Turn Windows features on or off'."
+                    .into(),
             ));
         }
         unsafe {
-            let module = GetModuleHandleA(PCSTR(b"WinHvPlatform.dll\0".as_ptr()))
-                .map_err(|e| CoreError::VirtualizationUnavailable(format!("GetModuleHandleA: {e}")))?;
+            let module = GetModuleHandleA(PCSTR(b"WinHvPlatform.dll\0".as_ptr())).map_err(|e| {
+                CoreError::VirtualizationUnavailable(format!("GetModuleHandleA: {e}"))
+            })?;
             Ok(Self { module })
         }
     }
@@ -109,13 +110,16 @@ impl Backend for WhpxBackend {
                 &prop,
                 std::mem::size_of::<WHV_PARTITION_PROPERTY>() as u32,
             )
-            .map_err(|e| CoreError::Backend(format!("WHvSetPartitionProperty(ProcessorCount): {e}")))?;
+            .map_err(|e| {
+                CoreError::Backend(format!("WHvSetPartitionProperty(ProcessorCount): {e}"))
+            })?;
 
             // Set the synthetic features we want (virtio-input, virtio-gpu).
             let mut synth = WHV_VIRTUAL_PROCESSOR_SYNTHETIC_FEATURES::default();
             synth.0 = 0xFF;
             let mut prop = WHV_PARTITION_PROPERTY::default();
-            prop.VirtualProcessorExtendedVmExits.AsSyntheticProcessorFeatures = synth;
+            prop.VirtualProcessorExtendedVmExits
+                .AsSyntheticProcessorFeatures = synth;
             WHvSetPartitionProperty(
                 partition,
                 WHvPartitionPropertyCodeExtendedVmExits,

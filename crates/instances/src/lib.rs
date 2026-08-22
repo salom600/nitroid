@@ -20,11 +20,9 @@
 use std::path::{Path, PathBuf};
 
 use dashmap::DashMap;
-use nitroid_core::{
-    InstanceConfig, InstanceId, InstanceState, SystemImage,
-};
 use nitroid_core::paths;
 use nitroid_core::Result;
+use nitroid_core::{InstanceConfig, InstanceId, InstanceState, SystemImage};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -47,7 +45,10 @@ struct ManagedInstance {
 impl InstanceManager {
     /// Create a new manager backed by the default Nitroid data directory.
     pub fn new() -> Result<Self> {
-        Self::at(paths::instance_registry_file(), paths::image_registry_file())
+        Self::at(
+            paths::instance_registry_file(),
+            paths::image_registry_file(),
+        )
     }
 
     /// Create a manager backed by the given registry files. Used by tests.
@@ -94,9 +95,9 @@ impl InstanceManager {
             .find(|i| i.fingerprint == image_fingerprint)
             .cloned()
             .ok_or_else(|| {
-                nitroid_core::CoreError::ImageNotFound(
-                    format!("no image with fingerprint {image_fingerprint}"),
-                )
+                nitroid_core::CoreError::ImageNotFound(format!(
+                    "no image with fingerprint {image_fingerprint}"
+                ))
             })?;
 
         let config = InstanceConfig::new(name, &image)?;
@@ -117,7 +118,11 @@ impl InstanceManager {
     /// Clone an existing instance — creates a new instance sharing the same
     /// image but with its own overlay initialised from a snapshot of the
     /// source instance's current overlay.
-    pub fn clone_instance(&self, source_id: &str, new_name: impl Into<String>) -> Result<InstanceId> {
+    pub fn clone_instance(
+        &self,
+        source_id: &str,
+        new_name: impl Into<String>,
+    ) -> Result<InstanceId> {
         let source_cfg = self
             .get_config(source_id)
             .ok_or_else(|| nitroid_core::CoreError::InstanceNotFound(source_id.into()))?;
@@ -137,9 +142,7 @@ impl InstanceManager {
         // Copy the source overlay as the starting point.
         if source_cfg.overlay_path.exists() {
             std::fs::copy(&source_cfg.overlay_path, &new_cfg.overlay_path).map_err(|e| {
-                nitroid_core::CoreError::Backend(format!(
-                    "failed to clone overlay: {e}"
-                ))
+                nitroid_core::CoreError::Backend(format!("failed to clone overlay: {e}"))
             })?;
         } else {
             self.ensure_overlay(&new_cfg.overlay_path)?;
@@ -203,11 +206,7 @@ impl InstanceManager {
 
     /// Persist the instance registry to disk.
     pub fn save_instances(&self) -> Result<()> {
-        let list: Vec<InstanceConfig> = self
-            .instances
-            .iter()
-            .map(|e| e.config.clone())
-            .collect();
+        let list: Vec<InstanceConfig> = self.instances.iter().map(|e| e.config.clone()).collect();
         let raw = serde_json::to_string_pretty(&list)?;
         if let Some(parent) = self.registry_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -254,7 +253,7 @@ impl InstanceManager {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            std::fs::write(path, &[])?;
+            std::fs::write(path, [])?;
         }
         Ok(())
     }

@@ -5,9 +5,9 @@ use eframe::egui;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-use nitroid_core::{EmulatorConfig, InstanceState, SystemImage};
-use nitroid_input::{builtin_profiles, Keymap, save_keymap, load_keymap};
 use nitroid_core::paths;
+use nitroid_core::{EmulatorConfig, InstanceState, SystemImage};
+use nitroid_input::{builtin_profiles, load_keymap, save_keymap, Keymap};
 
 use crate::app::{list_instances_for_display, NitroidApp, Panel};
 
@@ -151,30 +151,30 @@ impl ImagesPanel {
             if images.is_empty() {
                 ui.label("No images registered.");
             } else {
-                egui::Grid::new("images_grid").num_columns(4).striped(true).show(ui, |ui| {
-                    ui.label("Name");
-                    ui.label("Arch");
-                    ui.label("Size");
-                    ui.label("Path");
-                    ui.end_row();
-                    for img in images {
-                        ui.label(&img.name);
-                        ui.label(arch_label(img.arch));
-                        ui.label(format_size(img.size_bytes));
-                        ui.label(img.path.to_string_lossy());
+                egui::Grid::new("images_grid")
+                    .num_columns(4)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label("Name");
+                        ui.label("Arch");
+                        ui.label("Size");
+                        ui.label("Path");
                         ui.end_row();
-                    }
-                });
+                        for img in images {
+                            ui.label(&img.name);
+                            ui.label(arch_label(img.arch));
+                            ui.label(format_size(img.size_bytes));
+                            ui.label(img.path.to_string_lossy());
+                            ui.end_row();
+                        }
+                    });
             }
 
             ui.add_space(16.0);
             ui.horizontal(|ui| {
                 if ui.button("Register image…").clicked() {
                     if let Some(path) = rfd_pick_image() {
-                        match SystemImage::register(
-                            &path,
-                            nitroid_core::CpuArch::X86_64,
-                        ) {
+                        match SystemImage::register(&path, nitroid_core::CpuArch::X86_64) {
                             Ok(img) => {
                                 let _ = app.manager.register_image(img);
                                 if app.needs_setup {
@@ -262,7 +262,9 @@ impl SettingsPanel {
             ui.collapsing("Defaults", |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Memory (MB):");
-                    ui.add(egui::Slider::new(&mut cfg.default_memory_mb, 1024..=32768).step_by(256.0));
+                    ui.add(
+                        egui::Slider::new(&mut cfg.default_memory_mb, 1024..=32768).step_by(256.0),
+                    );
                 });
                 ui.horizontal(|ui| {
                     ui.label("CPU count:");
@@ -270,7 +272,9 @@ impl SettingsPanel {
                 });
                 ui.horizontal(|ui| {
                     ui.label("Refresh rate (Hz):");
-                    ui.add(egui::Slider::new(&mut cfg.default_refresh_rate, 30..=240).step_by(15.0));
+                    ui.add(
+                        egui::Slider::new(&mut cfg.default_refresh_rate, 30..=240).step_by(15.0),
+                    );
                 });
             });
 

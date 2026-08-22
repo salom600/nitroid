@@ -7,12 +7,10 @@ use eframe::egui;
 use parking_lot::RwLock;
 
 use nitroid_core::{EmulatorConfig, InstanceConfig, InstanceState};
-use nitroid_instances::InstanceManager;
 use nitroid_input::{builtin_profiles, Keymap};
+use nitroid_instances::InstanceManager;
 
-use crate::panels::{
-    ImagesPanel, InstancesPanel, SettingsPanel, SetupPanel,
-};
+use crate::panels::{ImagesPanel, InstancesPanel, SettingsPanel, SetupPanel};
 use crate::theme::Theme;
 
 /// Which panel is currently visible in the main content area.
@@ -61,7 +59,11 @@ impl NitroidApp {
             config: Arc::new(RwLock::new(config)),
             manager,
             active_keymap: Arc::new(RwLock::new(default_keymap)),
-            current_panel: if needs_setup { Panel::Setup } else { Panel::Instances },
+            current_panel: if needs_setup {
+                Panel::Setup
+            } else {
+                Panel::Instances
+            },
             show_perf_overlay: false,
             selected_instance: None,
             needs_setup,
@@ -104,11 +106,7 @@ impl NitroidApp {
                     ui.add_space(self.theme.spacing);
                     ui.checkbox(&mut self.show_perf_overlay, "Performance overlay");
                     if let Some(info) = &self.backend_info {
-                        ui.label(
-                            egui::RichText::new(info)
-                                .color(self.theme.text_dim)
-                                .small(),
-                        );
+                        ui.label(egui::RichText::new(info).color(self.theme.text_dim).small());
                     }
                 });
             });

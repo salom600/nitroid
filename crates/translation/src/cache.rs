@@ -60,10 +60,8 @@ impl TranslationCache {
 
     /// Insert a freshly translated block.
     pub fn insert(&self, guest_pc: u64, block: TranslatedBlock) {
-        self.in_memory.insert(
-            guest_pc,
-            CachedBlock { block, hits: 0 },
-        );
+        self.in_memory
+            .insert(guest_pc, CachedBlock { block, hits: 0 });
     }
 
     /// Total number of cached blocks.

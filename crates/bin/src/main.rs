@@ -14,7 +14,7 @@ use anyhow::Context;
 use parking_lot::RwLock;
 use tracing::{info, warn};
 
-use nitroid_core::{EmulatorConfig, paths};
+use nitroid_core::{paths, EmulatorConfig};
 use nitroid_instances::InstanceManager;
 use nitroid_ui::NitroidApp;
 use nitroid_virtualization::pick_backend;
@@ -24,8 +24,8 @@ fn main() -> anyhow::Result<()> {
     info!("Nitroid v{} starting up", env!("CARGO_PKG_VERSION"));
 
     let config_path = paths::config_file();
-    let config = EmulatorConfig::load_or_create(&config_path)
-        .context("failed to load configuration")?;
+    let config =
+        EmulatorConfig::load_or_create(&config_path).context("failed to load configuration")?;
     info!(?config.accel, ?config.graphics, "loaded config");
 
     let manager = InstanceManager::new().context("failed to initialise instance manager")?;
@@ -66,7 +66,10 @@ fn main() -> anyhow::Result<()> {
 
     // If `--cli` was passed, run the CLI and exit.
     let args: Vec<String> = std::env::args().collect();
-    if args.iter().any(|a| a == "--cli" || a == "--list" || a == "--help") {
+    if args
+        .iter()
+        .any(|a| a == "--cli" || a == "--list" || a == "--help")
+    {
         return cli::run(args, &config, &manager);
     }
 
@@ -85,12 +88,8 @@ fn launch_gui(app: NitroidApp) -> anyhow::Result<()> {
             .with_title("Nitroid"),
         ..Default::default()
     };
-    eframe::run_native(
-        "Nitroid",
-        options,
-        Box::new(|_cc| Ok(Box::new(app))),
-    )
-    .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
+    eframe::run_native("Nitroid", options, Box::new(|_cc| Ok(Box::new(app))))
+        .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
     Ok(())
 }
 

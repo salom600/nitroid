@@ -40,7 +40,7 @@ use nitroid_core::{CpuArch, Result};
 pub fn pick_backend(guest: CpuArch) -> Result<TranslatorBackend> {
     #[cfg(target_arch = "x86_64")]
     {
-        return match guest {
+        match guest {
             CpuArch::X86_64 => Ok(TranslatorBackend::Native(NativeBackend)),
             CpuArch::Aarch64 | CpuArch::Armv7 => {
                 // Probe for a system-image-bundled translator first.
@@ -50,7 +50,7 @@ pub fn pick_backend(guest: CpuArch) -> Result<TranslatorBackend> {
                     Ok(TranslatorBackend::Unavailable)
                 }
             }
-        };
+        }
     }
     #[cfg(target_arch = "aarch64")]
     {

@@ -14,23 +14,55 @@ use nitroid_core::Result;
 /// from a recording.
 #[derive(Debug, Clone, Copy)]
 pub enum HostEvent {
-    KeyDown { code: ScanCode, time_us: u64 },
-    KeyUp { code: ScanCode, time_us: u64 },
-    MouseDown { button: MouseButton, time_us: u64 },
-    MouseUp { button: MouseButton, time_us: u64 },
-    MouseMove { x: i32, y: i32, time_us: u64 },
-    Wheel { delta: i32, time_us: u64 },
+    KeyDown {
+        code: ScanCode,
+        time_us: u64,
+    },
+    KeyUp {
+        code: ScanCode,
+        time_us: u64,
+    },
+    MouseDown {
+        button: MouseButton,
+        time_us: u64,
+    },
+    MouseUp {
+        button: MouseButton,
+        time_us: u64,
+    },
+    MouseMove {
+        x: i32,
+        y: i32,
+        time_us: u64,
+    },
+    Wheel {
+        delta: i32,
+        time_us: u64,
+    },
     /// Gamepad axes — `axis_id` matches the Linux gamepad convention.
-    GamepadAxis { axis_id: u8, value: f32, time_us: u64 },
+    GamepadAxis {
+        axis_id: u8,
+        value: f32,
+        time_us: u64,
+    },
     /// Gamepad button (using evdev BTN_GAMEPAD/BTN_SOUTH/etc. numbering).
-    GamepadButton { code: u16, pressed: bool, time_us: u64 },
+    GamepadButton {
+        code: u16,
+        pressed: bool,
+        time_us: u64,
+    },
 }
 
 /// What we want to do on the guest. Coordinates are in guest display pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OutputAction {
     /// Touch down at (x, y) with `pressure` (0..=255).
-    TouchDown { slot: u32, x: u32, y: u32, pressure: u16 },
+    TouchDown {
+        slot: u32,
+        x: u32,
+        y: u32,
+        pressure: u16,
+    },
     /// Move an existing touch.
     TouchMove { slot: u32, x: u32, y: u32 },
     /// Release a touch.
@@ -173,7 +205,11 @@ impl InputTranslator {
                     out.push(OutputAction::TouchUp { slot });
                 }
             }
-            KeyAction::Swipe { from, to, duration_ms } => {
+            KeyAction::Swipe {
+                from,
+                to,
+                duration_ms,
+            } => {
                 // Simplified swipe: touch down, then a sequence of moves to
                 // approximate the gesture over `duration_ms`.
                 out.push(OutputAction::TouchDown {
@@ -203,9 +239,7 @@ impl InputTranslator {
                         y: step.target.y,
                         pressure: 255,
                     });
-                    out.push(OutputAction::TouchUp {
-                        slot: macro_slot,
-                    });
+                    out.push(OutputAction::TouchUp { slot: macro_slot });
                 }
             }
         }
@@ -233,13 +267,21 @@ mod tests {
         km.bind_key(
             scancodes::KEY_SPACE,
             KeyAction::Tap {
-                target: TouchTarget { x: 640, y: 360, radius: None },
+                target: TouchTarget {
+                    x: 640,
+                    y: 360,
+                    radius: None,
+                },
             },
         );
         km.bind_key(
             scancodes::KEY_W,
             KeyAction::Hold {
-                target: TouchTarget { x: 100, y: 100, radius: None },
+                target: TouchTarget {
+                    x: 100,
+                    y: 100,
+                    radius: None,
+                },
             },
         );
         km
@@ -248,16 +290,33 @@ mod tests {
     #[test]
     fn key_down_produces_touch_down() {
         let t = InputTranslator::new(make_keymap());
-        let out = t.translate(HostEvent::KeyDown { code: scancodes::KEY_SPACE, time_us: 0 }).unwrap();
+        let out = t
+            .translate(HostEvent::KeyDown {
+                code: scancodes::KEY_SPACE,
+                time_us: 0,
+            })
+            .unwrap();
         assert_eq!(out.len(), 1);
-        assert!(matches!(out[0], OutputAction::TouchDown { x: 640, y: 360, .. }));
+        assert!(matches!(
+            out[0],
+            OutputAction::TouchDown { x: 640, y: 360, .. }
+        ));
     }
 
     #[test]
     fn key_up_produces_touch_up() {
         let t = InputTranslator::new(make_keymap());
-        t.translate(HostEvent::KeyDown { code: scancodes::KEY_SPACE, time_us: 0 }).unwrap();
-        let out = t.translate(HostEvent::KeyUp { code: scancodes::KEY_SPACE, time_us: 1 }).unwrap();
+        t.translate(HostEvent::KeyDown {
+            code: scancodes::KEY_SPACE,
+            time_us: 0,
+        })
+        .unwrap();
+        let out = t
+            .translate(HostEvent::KeyUp {
+                code: scancodes::KEY_SPACE,
+                time_us: 1,
+            })
+            .unwrap();
         assert_eq!(out.len(), 1);
         assert!(matches!(out[0], OutputAction::TouchUp { .. }));
     }
@@ -268,14 +327,28 @@ mod tests {
         km.bind_key(
             scancodes::KEY_1,
             KeyAction::Toggle {
-                target: TouchTarget { x: 10, y: 10, radius: None },
+                target: TouchTarget {
+                    x: 10,
+                    y: 10,
+                    radius: None,
+                },
                 held: false,
             },
         );
         let t = InputTranslator::new(km);
-        let out1 = t.translate(HostEvent::KeyDown { code: scancodes::KEY_1, time_us: 0 }).unwrap();
+        let out1 = t
+            .translate(HostEvent::KeyDown {
+                code: scancodes::KEY_1,
+                time_us: 0,
+            })
+            .unwrap();
         assert!(matches!(out1[0], OutputAction::TouchDown { .. }));
-        let out2 = t.translate(HostEvent::KeyDown { code: scancodes::KEY_1, time_us: 1 }).unwrap();
+        let out2 = t
+            .translate(HostEvent::KeyDown {
+                code: scancodes::KEY_1,
+                time_us: 1,
+            })
+            .unwrap();
         assert!(matches!(out2[0], OutputAction::TouchUp { .. }));
     }
 
@@ -285,13 +358,26 @@ mod tests {
         km.bind_key(
             scancodes::KEY_2,
             KeyAction::Swipe {
-                from: TouchTarget { x: 0, y: 0, radius: None },
-                to: TouchTarget { x: 100, y: 0, radius: None },
+                from: TouchTarget {
+                    x: 0,
+                    y: 0,
+                    radius: None,
+                },
+                to: TouchTarget {
+                    x: 100,
+                    y: 0,
+                    radius: None,
+                },
                 duration_ms: 64,
             },
         );
         let t = InputTranslator::new(km);
-        let out = t.translate(HostEvent::KeyDown { code: scancodes::KEY_2, time_us: 0 }).unwrap();
+        let out = t
+            .translate(HostEvent::KeyDown {
+                code: scancodes::KEY_2,
+                time_us: 0,
+            })
+            .unwrap();
         // TouchDown + 4 moves + TouchUp
         assert!(out.len() >= 3);
         assert!(matches!(out[0], OutputAction::TouchDown { .. }));

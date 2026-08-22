@@ -14,6 +14,5 @@ pub fn init() {
         .with(filter)
         .with(fmt::layer().with_target(false).with_ansi(true));
 
-    tracing::subscriber::set_global_default(subscriber)
-        .ok();
+    tracing::subscriber::set_global_default(subscriber).ok();
 }

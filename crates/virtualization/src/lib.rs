@@ -30,14 +30,12 @@ use nitroid_core::{AccelBackend, CoreError, Result};
 pub fn pick_backend(preferred: AccelBackend) -> Result<Box<dyn Backend>> {
     #[cfg(target_os = "linux")]
     {
-        if matches!(preferred, AccelBackend::Auto | AccelBackend::Kvm) {
-            if kvm::is_available() {
-                return Ok(Box::new(KvmBackend::new()?));
-            }
+        if matches!(preferred, AccelBackend::Auto | AccelBackend::Kvm) && kvm::is_available() {
+            return Ok(Box::new(KvmBackend::new()?));
         }
-        return Err(CoreError::VirtualizationUnavailable(
+        Err(CoreError::VirtualizationUnavailable(
             "KVM is not available on this Linux host. Ensure /dev/kvm exists and your user is in the kvm group.".into(),
-        ));
+        ))
     }
 
     #[cfg(target_os = "windows")]

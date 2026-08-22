@@ -19,7 +19,9 @@ pub mod keymap;
 pub mod profiles;
 pub mod translator;
 
-pub use keymap::{KeyAction, Keymap, MouseButton as HostMouseButton, MouseRegion, ScanCode, TouchTarget};
+pub use keymap::{
+    KeyAction, Keymap, MouseButton as HostMouseButton, MouseRegion, ScanCode, TouchTarget,
+};
 pub use profiles::{builtin_profiles, profile_by_id, ProfileId};
 pub use translator::{InputTranslator, OutputAction};
 

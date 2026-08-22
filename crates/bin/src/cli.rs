@@ -33,7 +33,10 @@ fn print_instances(manager: &InstanceManager) {
         println!("No instances.");
         return;
     }
-    println!("{:<24} {:<8} {:<12} {:<14} {}", "ID", "STATE", "CPU×MEM", "RESOLUTION", "NAME");
+    println!(
+        "{:<24} {:<8} {:<12} {:<14} NAME",
+        "ID", "STATE", "CPU×MEM", "RESOLUTION"
+    );
     println!("{}", "-".repeat(80));
     for (cfg, state) in instances {
         println!(

@@ -2,30 +2,17 @@
 //!
 //! WHPX is the user-mode API exposed by `Win32_System_Hypervisor` that lets
 //! third-party emulators drive Hyper-V partitions without requiring admin
-//! privileges. It's the recommended acceleration backend on Windows for
-//! emulators like QEMU and us.
+//! privileges.
 //!
-//! ## Architecture
+//! ## Current state
 //!
-//! A WHPX-backed VM has:
-//!
-//! 1. A partition (`WHV_PARTITION_HANDLE`) — the VM container
-//! 2. Mapped guest physical memory ranges (`WHvMapGpaRange`)
-//! 3. One or more virtual processors (`WHvCreateVirtualProcessor`)
-//! 4. A run loop (`WHvRunVirtualProcessor`) that dispatches exit reasons
-//!
-//! Each vCPU runs on its own OS thread. The thread loops calling
-//! `WHvRunVirtualProcessor`, which blocks until the guest exits (MMIO,
-//! I/O, halt, etc.). The exit reason is dispatched to the appropriate
-//! handler, then the loop continues.
-//!
-//! ## Caveats
-//!
-//! The `windows` crate's `Win32_System_Hypervisor` module is still evolving
-//! between versions — different versions of the crate expose slightly
-//! different function signatures and enum names. This module is written
-//! defensively so it compiles across the 0.58 series. If CI breaks after
-//! a `windows` crate bump, this is the first place to look.
+//! This module exposes the real WHPX partition creation API surface
+//! (`WHvCreatePartition`, `WHvMapGpaRange`, `WHvCreateVirtualProcessor`).
+//! The vCPU run loop is wired but the exit-reason dispatch is intentionally
+//! simplified — the `windows` crate's WHPX bindings have evolved between
+//! versions and exit-reason union access is brittle. Full exit dispatch
+//! (MMIO, I/O, interrupts) requires runtime debugging on a real Windows host
+//! with WHPX enabled, which is out of scope for CI.
 
 use std::sync::Arc;
 
@@ -35,11 +22,11 @@ use tracing::{info, warn};
 use windows::core::PCSTR;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Hypervisor::{
-    WHvCreatePartition, WHvCreateVirtualProcessor, WHvDeletePartition, WHvDeleteVirtualProcessor,
-    WHvGetPartitionCounters, WHvMapGpaRange, WHvMapGpaRangeFlagExecute, WHvMapGpaRangeFlagRead,
-    WHvMapGpaRangeFlagWrite, WHvPartitionPropertyCodeProcessorCount, WHvRunVirtualProcessor,
-    WHvSetPartitionProperty, WHV_MAP_GPA_RANGE_FLAGS, WHV_PARTITION_HANDLE, WHV_PARTITION_PROPERTY,
-    WHV_RUN_VP_EXIT_REASON, WHV_VP_EXIT_REASON_TYPE,
+    WHvCreatePartition, WHvCreateVirtualProcessor, WHvDeletePartition,
+    WHvDeleteVirtualProcessor, WHvMapGpaRange, WHvPartitionPropertyCodeProcessorCount,
+    WHvRunVirtualProcessor, WHvSetPartitionProperty, WHvMapGpaRangeFlagRead,
+    WHvMapGpaRangeFlagWrite, WHvMapGpaRangeFlagExecute, WHV_PARTITION_HANDLE,
+    WHV_PARTITION_PROPERTY,
 };
 use windows::Win32::System::LibraryLoader::LoadLibraryA;
 
@@ -47,9 +34,7 @@ use crate::traits::{Backend, BackendCapabilities, BackendInfo, InputEvent, VmHan
 use nitroid_core::CoreError;
 
 /// Quick availability check — does `WinHvPlatform.dll` exist and can it be
-/// loaded? We don't keep the loaded handle around (the OS will keep the DLL
-/// loaded for the lifetime of the process once we touch it), which lets the
-/// backend be `Send + Sync` without an `unsafe impl` block.
+/// loaded?
 pub fn is_available() -> bool {
     unsafe { LoadLibraryA(PCSTR(b"WinHvPlatform.dll\0".as_ptr())).is_ok() }
 }
@@ -62,8 +47,7 @@ impl WhpxBackend {
     pub fn new() -> Result<Self> {
         if !is_available() {
             return Err(CoreError::VirtualizationUnavailable(
-                "WHPX not available. Install Hyper-V from 'Turn Windows features on or off'."
-                    .into(),
+                "WHPX not available. Install Hyper-V from 'Turn Windows features on or off'.".into(),
             ));
         }
         Ok(Self { _loaded: true })
@@ -82,7 +66,7 @@ impl Backend for WhpxBackend {
     fn capabilities(&self) -> Result<BackendCapabilities> {
         Ok(BackendCapabilities {
             max_vcpus: 64,
-            max_memory_mb: 1 << 20, // 1 TiB cap
+            max_memory_mb: 1 << 20,
             supports_arm_translation: false,
             supports_virtio_gpu: true,
         })
@@ -92,10 +76,6 @@ impl Backend for WhpxBackend {
         cfg.validate()?;
         info!(instance = %cfg.name, vcpus = cfg.cpu_count, "WHPX create_vm: creating real partition");
 
-        // SAFETY: All WHPX calls are unsafe because they're FFI into
-        // WinHvPlatform.dll. We rely on the WHPX API's own validation
-        // for parameter correctness — invalid parameters return errors,
-        // they don't crash.
         unsafe {
             // 1. Create the partition.
             let mut partition: WHV_PARTITION_HANDLE = std::mem::zeroed();
@@ -107,13 +87,19 @@ impl Backend for WhpxBackend {
                 )));
             }
 
-            // 2. Set the processor count.
-            let mut prop = WHV_PARTITION_PROPERTY::default();
-            *prop.u1.ProcessorCount_mut() = cfg.cpu_count;
+            // 2. Set the processor count via the partition property. We
+            //    write the property as raw bytes since the `windows` crate's
+            //    union access for `WHV_PARTITION_PROPERTY` varies between
+            //    versions.
+            let cpu_count = cfg.cpu_count;
+            let mut prop_bytes = [0u8; std::mem::size_of::<WHV_PARTITION_PROPERTY>()];
+            // ProcessorCount is the first u32 in the union.
+            prop_bytes[0..4].copy_from_slice(&cpu_count.to_le_bytes());
+            let prop_ptr = &prop_bytes as *const _ as *const WHV_PARTITION_PROPERTY;
             let set_result = WHvSetPartitionProperty(
                 partition,
                 WHvPartitionPropertyCodeProcessorCount,
-                &prop,
+                prop_ptr,
                 std::mem::size_of::<WHV_PARTITION_PROPERTY>() as u32,
             );
             if set_result.is_err() {
@@ -125,7 +111,6 @@ impl Backend for WhpxBackend {
             }
 
             // 3. Allocate guest physical memory using VirtualAlloc.
-            // We map one large region of cfg.memory_mb megabytes.
             let mem_size = (cfg.memory_mb as usize) * 1024 * 1024;
             let host_ptr = windows::Win32::System::Memory::VirtualAlloc(
                 None,
@@ -141,11 +126,16 @@ impl Backend for WhpxBackend {
                 ));
             }
 
-            // 4. Map the GPA range into the partition.
-            let gpa_flags = WHV_MAP_GPA_RANGE_FLAGS(
-                WHvMapGpaRangeFlagRead.0 | WHvMapGpaRangeFlagWrite.0 | WHvMapGpaRangeFlagExecute.0,
+            // 4. Map the GPA range into the partition with read/write/exec.
+            let gpa_flags_raw =
+                WHvMapGpaRangeFlagRead.0 | WHvMapGpaRangeFlagWrite.0 | WHvMapGpaRangeFlagExecute.0;
+            let map_result = WHvMapGpaRange(
+                partition,
+                host_ptr,
+                0,
+                mem_size as u64,
+                windows::Win32::System::Hypervisor::WHV_MAP_GPA_RANGE_FLAGS(gpa_flags_raw),
             );
-            let map_result = WHvMapGpaRange(partition, host_ptr, 0, mem_size as u64, gpa_flags);
             if map_result.is_err() {
                 let _ = windows::Win32::System::Memory::VirtualFree(
                     host_ptr,
@@ -200,7 +190,6 @@ impl Backend for WhpxBackend {
             *running = true;
         }
 
-        // Spawn one thread per vCPU.
         let mut handles = Vec::with_capacity(inner.config.cpu_count as usize);
         for vcpu_id in 0..inner.config.cpu_count {
             let inner_for_thread = inner.clone();
@@ -246,12 +235,10 @@ impl Backend for WhpxBackend {
             .clone();
         info!(instance = %inner.config.name, "stopping WHPX VM");
         *inner.running.lock() = false;
-        // Wait for all vCPU threads to exit.
         let handles: Vec<_> = inner.thread_handles.lock().drain(..).collect();
         for handle in handles {
             let _ = handle.join();
         }
-        // Delete the partition + unmap memory.
         unsafe {
             let partition = *inner.partition.lock();
             for vcpu_id in 0..inner.config.cpu_count {
@@ -282,18 +269,26 @@ impl Backend for WhpxBackend {
 }
 
 /// The per-vCPU run loop for WHPX. Runs on its own OS thread.
+///
+/// We allocate a buffer for the exit reason and call `WHvRunVirtualProcessor`
+/// in a loop. The exit reason dispatch is intentionally simple — full
+/// dispatch (MMIO, I/O, interrupts) requires runtime debugging on a real
+/// Windows host with WHPX enabled.
 fn run_whpx_vcpu(vm: Arc<WhpxVm>, vcpu_id: u32) {
     info!(vcpu_id, "WHPX vCPU thread started");
     let partition = *vm.partition.lock();
-    let mut exit_reason: WHV_RUN_VP_EXIT_REASON = unsafe { std::mem::zeroed() };
+
+    // The exit reason buffer is large enough for any exit reason variant.
+    // 256 bytes is over-provisioned but safe.
+    let mut exit_buf = [0u8; 256];
 
     while *vm.running.lock() {
         let result = unsafe {
             WHvRunVirtualProcessor(
                 partition,
                 vcpu_id,
-                &mut exit_reason,
-                std::mem::size_of::<WHV_RUN_VP_EXIT_REASON>() as u32,
+                exit_buf.as_mut_ptr() as *mut _,
+                exit_buf.len() as u32,
             )
         };
         if let Err(e) = result {
@@ -301,17 +296,18 @@ fn run_whpx_vcpu(vm: Arc<WhpxVm>, vcpu_id: u32) {
             break;
         }
 
-        // Dispatch on the exit reason type. WHPX exposes the type via
-        // the `ExitReason` field of the union; the `windows` crate
-        // wraps it as `WHV_VP_EXIT_REASON_TYPE`.
-        let exit_type: WHV_VP_EXIT_REASON_TYPE = unsafe { exit_reason.u1.ExitReason };
-        match exit_type {
-            // Memory access — typically virtio MMIO or PCI config space.
-            // Dispatch to the virtio device layer when wired.
-            _ => {
-                tracing::debug!(vcpu_id, exit_type = ?, "WHPX exit reason");
-            }
-        }
+        // The exit reason type is the first u32 of the exit reason struct.
+        // The exact layout depends on the windows crate version, but the
+        // ExitReason field is always near the start. We log it for diagnostics
+        // but don't dispatch on specific types yet — that's the follow-up
+        // work that requires Windows desktop debugging.
+        let exit_type = u32::from_le_bytes([
+            exit_buf[0],
+            exit_buf[1],
+            exit_buf[2],
+            exit_buf[3],
+        ]);
+        tracing::debug!(vcpu_id, exit_type, "WHPX exit reason");
     }
     info!(vcpu_id, "WHPX vCPU thread exiting");
 }
@@ -326,14 +322,9 @@ struct WhpxVm {
 }
 
 // SAFETY: WHV_PARTITION_HANDLE is a void* under the hood. The partition is
-// thread-safe per the WHPX docs — multiple vCPUs can call into the same
-// partition concurrently. The host_ptr is only read during memory mapping
-// (in create_vm) and unmapping (in stop), both of which are serialised by
-// the calling code.
+// thread-safe per the WHPX docs.
 unsafe impl Send for WhpxVm {}
 unsafe impl Sync for WhpxVm {}
 
-// Suppress unused-import warning for HANDLE — kept for future use when we
-// wire per-vCPU interrupt injection.
 #[allow(dead_code)]
 fn _ensure_handle_import_used(_: HANDLE) {}

@@ -17,11 +17,12 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 5
   RUSTUP_MAX_RETRIES: 5
-  # Android-x86 9.0-r2 (Pie) — stable, widely-tested, ~900 MB ISO. Used as
-  # the default bundled image. The URL points at the primary Android-x86
-  # mirror; if it's down, the build retries with exponential backoff.
+  # Android-x86 9.0-r2 (Pie) — stable, widely-tested, ~900 MB ISO. We use
+  # the SourceForge mirror because the primary dl.android-x86.org server
+  # has an SSL certificate mismatch (the cert doesn't cover the dl.
+  # subdomain). SourceForge mirrors the official ISOs.
   ANDROID_X86_VERSION: "9.0-r2"
-  ANDROID_X86_URL: "https://dl.android-x86.org/9.0-r2/android-x86_64-9.0-r2.iso"
+  ANDROID_X86_URL: "https://downloads.sourceforge.net/project/android-x86/Release%209.0/android-x86_64-9.0-r2.iso"
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────

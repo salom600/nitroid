@@ -148,7 +148,7 @@ impl Backend for WhpxBackend {
             for vcpu_id in 0..cfg.cpu_count {
                 let create_vp = WHvCreateVirtualProcessor(partition, vcpu_id as u32, 0);
                 if create_vp.is_err() {
-                    warn!(vcpu_id, error = ?, create_vp, "failed to create vCPU");
+                    warn!(vcpu_id, error = %format!("{:?}", create_vp), "failed to create vCPU");
                     let _ = WHvDeletePartition(partition);
                     return Err(CoreError::Backend(format!(
                         "WHvCreateVirtualProcessor({vcpu_id}) failed: {:?}",
@@ -287,7 +287,7 @@ fn run_whpx_vcpu(vm: Arc<WhpxVm>, vcpu_id: u32) {
             )
         };
         if let Err(e) = result {
-            warn!(vcpu_id, error = ?, e, "WHvRunVirtualProcessor failed");
+            warn!(vcpu_id, error = %format!("{:?}", e), "WHvRunVirtualProcessor failed");
             break;
         }
 

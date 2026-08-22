@@ -77,15 +77,10 @@ impl Backend for WhpxBackend {
         info!(instance = %cfg.name, vcpus = cfg.cpu_count, "WHPX create_vm: creating real partition");
 
         unsafe {
-            // 1. Create the partition.
-            let mut partition: WHV_PARTITION_HANDLE = std::mem::zeroed();
-            let create_result = WHvCreatePartition(&mut partition);
-            if create_result.is_err() {
-                return Err(CoreError::Backend(format!(
-                    "WHvCreatePartition failed: {:?}",
-                    create_result
-                )));
-            }
+            // 1. Create the partition. In windows 0.58, WHvCreatePartition
+            //    returns Result<WHV_PARTITION_HANDLE> directly.
+            let partition: WHV_PARTITION_HANDLE = WHvCreatePartition()
+                .map_err(|e| CoreError::Backend(format!("WHvCreatePartition failed: {e}")))?;
 
             // 2. Set the processor count via the partition property. We
             //    write the property as raw bytes since the `windows` crate's
@@ -95,7 +90,7 @@ impl Backend for WhpxBackend {
             let mut prop_bytes = [0u8; std::mem::size_of::<WHV_PARTITION_PROPERTY>()];
             // ProcessorCount is the first u32 in the union.
             prop_bytes[0..4].copy_from_slice(&cpu_count.to_le_bytes());
-            let prop_ptr = &prop_bytes as *const _ as *const WHV_PARTITION_PROPERTY;
+            let prop_ptr = prop_bytes.as_ptr() as *const std::ffi::c_void;
             let set_result = WHvSetPartitionProperty(
                 partition,
                 WHvPartitionPropertyCodeProcessorCount,

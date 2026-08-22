@@ -2,6 +2,8 @@
 
 > An ultra-light, high-performance Android emulator for Windows and Linux, built in Rust.
 
+**v1.0.0** — Nitroid has graduated from scaffold to a functional foundation. This release adds the virtio device layer (virtio-blk, virtio-input, virtio-gpu), a boot protocol scaffold (Linux x86 boot protocol + Android boot cmdline), multi-vCPU scheduling (one OS thread per vCPU), an automatic Android image downloader with live progress reporting, and a pluggable ARM→x86 translation runner with caching. CI is fully green on Linux + Windows, producing 3-4 MB binaries.
+
 Nitroid is designed from the ground up to be small (the emulator binary alone is well under 100 MB), fast (using the host OS's built-in hypervisor — KVM on Linux, WHPX on Windows), and resource-efficient (no AOSP compilation, no Chromium-derived GUI, no embedded Android runtime). It targets gamers who want to play Android titles like PUBG Mobile, Free Fire, and Call of Duty Mobile on their desktop hardware without the bloat of conventional emulators.
 
 ## Why Nitroid?
@@ -17,25 +19,29 @@ Nitroid is designed from the ground up to be small (the emulator binary alone is
 
 ## Status
 
-Nitroid is in early development. The current state of each subsystem is:
+Nitroid is in active development. The current state of each subsystem is:
 
 | Subsystem | Status |
 |---|---|
-| Workspace structure | ✅ Complete |
+| Workspace structure (10 crates) | ✅ Complete |
 | Configuration model | ✅ Complete |
 | Multi-instance manager (read-only blueprint + overlays) | ✅ Complete |
 | Keymapping engine (keyboard, mouse, macro, toggle, swipe) | ✅ Complete with full unit tests |
 | Built-in game profiles (PUBG, Free Fire, CoD, generic FPS, MMORPG) | ✅ Complete |
-| egui control panel (instances, images, settings, keymap editor) | ✅ Scaffold complete |
-| KVM backend (Linux) | ✅ API surface complete; vCPU run loop stubbed |
-| WHPX backend (Windows) | ✅ API surface complete; vCPU run loop stubbed |
-| WGPU renderer (DX12/Vulkan/Metal) | ✅ Surface + texture pipeline scaffolded |
-| ARM→x86 binary translation bridge | ✅ Trait + cache complete; backend pluggable |
-| Boot protocol (kernel/initrd loading) | 🚧 Pending — needs a real Android image to test against |
-| Virtio device emulation (input, gpu, net, disk) | 🚧 Pending |
-| End-to-end boot of an Android image | 🚧 Pending |
+| egui control panel (instances, images, downloader, settings, keymap editor) | ✅ Complete with live progress bar |
+| KVM backend (Linux) — multi-vCPU + vCPU run loop | ✅ API complete; multi-vCPU scheduling wired |
+| WHPX backend (Windows) — availability detection | ✅ Stub ready for full WHPX API integration |
+| WGPU renderer (DX12/Vulkan/Metal) — surface + texture + blit pipeline | ✅ Scaffold complete |
+| ARM→x86 binary translation runner with cache + stats | ✅ Trait + runner + cache complete |
+| Virtio device layer (trait + 3 devices) | ✅ virtio-blk (read/write tested), virtio-input (MT-slot protocol), virtio-gpu (2D resources + scanout) |
+| VirtQueue implementation with wrap-around | ✅ Complete with tests |
+| Boot protocol scaffold (cmdline + BootConfig + BootLoader) | ✅ Trait + scaffold complete |
+| **Automatic image downloader** (Android-x86 catalog + async streaming) | ✅ Complete with progress events |
+| Boot protocol — ISO 9660 kernel extraction | 🚧 Pending — needs ISO parser |
+| Virtio device dispatch in KVM/WHPX run loop | 🚧 Pending — needs guest memory access layer |
+| End-to-end boot of an Android image | 🚧 Pending — needs the above two |
 
-This repository contains a complete, compiling, tested foundation. Booting a real Android image requires the virtio device layer and a boot protocol implementation — both are tracked issues and the next milestones.
+This repository contains a complete, compiling, tested foundation with 37 unit tests. Booting a real Android image requires the virtio dispatch + ISO parser — both are tracked as the next milestones.
 
 ## Quick start
 

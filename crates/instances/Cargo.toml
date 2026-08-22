@@ -1,0 +1,21 @@
+[package]
+name = "nitroid-instances"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+
+[dependencies]
+nitroid-core = { path = "../core" }
+nitroid-virtualization = { path = "../virtualization" }
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dashmap.workspace = true
+
+[dev-dependencies]
+tempfile = "3.10"

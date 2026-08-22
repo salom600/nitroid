@@ -1,0 +1,208 @@
+name: CI
+
+# Run on every push to any branch and on every pull request targeting `main`.
+# This is the gate every change must pass before merging — it builds every
+# supported platform, runs the test suite, and lints with clippy.
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # Cache-friendly: avoid re-downloading the index on every job.
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 5
+  RUSTUP_MAX_RETRIES: 5
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # Lint + format check — fast, runs first to fail early on trivial issues.
+  # ──────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry + build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo-deny (licence / advisory check)
+        run: |
+          cargo install cargo-deny --locked --quiet || true
+          cargo deny check || true
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Linux build (Ubuntu 22.04) — produces a portable binary.
+  # ──────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build (Linux)
+    runs-on: ubuntu-22.04
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libssl-dev \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libx11-xcb-dev \
+            libgbm-dev \
+            libvulkan-dev \
+            mesa-vulkan-drivers \
+            vulkan-tools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace (release)
+        run: cargo build --release --workspace
+
+      - name: Run tests
+        run: cargo test --workspace --release
+
+      - name: Smoke check (headless instance listing)
+        run: ./target/release/nitroid --list
+
+      - name: Package binary
+        run: |
+          mkdir -p artifacts/linux
+          cp target/release/nitroid artifacts/linux/
+          cp README.md LICENSE-MIT LICENSE-APACHE artifacts/linux/
+          cd artifacts/linux && tar czf ../../nitroid-linux-x86_64.tar.gz .
+          cd ../..
+          ls -la nitroid-linux-x86_64.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nitroid-linux-x86_64
+          path: artifacts/linux/
+          retention-days: 30
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Windows build — produces a .exe with no required runtime DLLs.
+  # ──────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build (Windows)
+    runs-on: windows-2022
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build workspace (release)
+        run: cargo build --release --workspace
+
+      - name: Run tests
+        run: cargo test --workspace --release
+
+      - name: Smoke check
+        run: ./target/release/nitroid.exe --list
+
+      - name: Package binary
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts\windows
+          Copy-Item target\release\nitroid.exe artifacts\windows\
+          Copy-Item README.md artifacts\windows\
+          Copy-Item LICENSE-MIT artifacts\windows\
+          Copy-Item LICENSE-APACHE artifacts\windows\
+          Compress-Archive -Path artifacts\windows\* -DestinationPath nitroid-windows-x86_64.zip
+          Get-ChildItem nitroid-windows-x86_64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nitroid-windows-x86_64
+          path: artifacts\windows\
+          retention-days: 30
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Release — only runs when a tag starting with `v` is pushed. Uploads
+  # platform-specific archives to the GitHub release.
+  # ──────────────────────────────────────────────────────────────────────
+  release:
+    name: Release
+    needs: [build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create archives
+        run: |
+          mkdir -p release
+          tar czf release/nitroid-${{ github.ref_name }}-linux-x86_64.tar.gz -C artifacts/nitroid-linux-x86_64 .
+          cd artifacts/nitroid-windows-x86_64 && zip -r ../../release/nitroid-${{ github.ref_name }}-windows-x86_64.zip . && cd ../..
+          ls -la release/
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Nitroid ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            release/nitroid-${{ github.ref_name }}-linux-x86_64.tar.gz
+            release/nitroid-${{ github.ref_name }}-windows-x86_64.zip
+          body: |
+            ## Nitroid ${{ github.ref_name }}
+
+            ### Downloads
+            - **Linux x86_64**: `nitroid-${{ github.ref_name }}-linux-x86_64.tar.gz`
+            - **Windows x86_64**: `nitroid-${{ github.ref_name }}-windows-x86_64.zip`
+
+            ### Install (Linux)
+            ```bash
+            tar xzf nitroid-${{ github.ref_name }}-linux-x86_64.tar.gz
+            ./nitroid
+            ```
+
+            ### Install (Windows)
+            Extract the zip and double-click `nitroid.exe`.
+
+            ### Requirements
+            - **Linux**: KVM enabled (`/dev/kvm`), Vulkan-capable GPU
+            - **Windows**: Hyper-V / WHPX enabled, DX12-capable GPU

@@ -1,0 +1,141 @@
+name: Auto-repair
+
+# This workflow is triggered whenever the main CI workflow fails. It uses
+# GitHub's REST API to fetch the failed job's logs, runs an automated
+# diagnostic pass, and either:
+#
+#   1. Pushes an automated fix to the same branch (for trivial issues like
+#      missing `#[allow(...)]` attributes, formatting, etc.), OR
+#   2. Opens an issue with a structured failure report so a human can pick
+#      it up.
+#
+# It runs on `workflow_run` so it always has access to the failed run's
+# logs (even on PRs from forks).
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  diagnose:
+    name: Diagnose failure
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch failed run details
+        id: fetch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runId = context.payload.workflow_run.id;
+            const branch = context.payload.workflow_run.head_branch;
+            const repo = context.repo;
+
+            // Fetch all jobs for the failed run.
+            const jobs = await github.rest.actions.listJobsForWorkflowRun({
+              owner: repo.owner,
+              repo: repo.repo,
+              run_id: runId,
+            });
+
+            const failed = jobs.data.jobs.filter(j => j.conclusion === 'failure');
+            core.setOutput('branch', branch);
+            core.setOutput('failed_jobs', failed.map(j => j.name).join(', '));
+
+            // Fetch logs for each failed job.
+            const logs = [];
+            for (const job of failed) {
+              try {
+                const log = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                  owner: repo.owner,
+                  repo: repo.repo,
+                  job_id: job.id,
+                });
+                logs.push(`## Job: ${job.name}\n\n\`\`\`\n${log.data}\n\`\`\`\n`);
+              } catch (e) {
+                logs.push(`## Job: ${job.name}\n\n(failed to fetch logs: ${e.message})\n`);
+              }
+            }
+            core.setOutput('logs', logs.join('\n'));
+
+      - name: Run diagnostics
+        id: diag
+        run: |
+          echo "Failed jobs: ${{ steps.fetch.outputs.failed_jobs }}"
+          echo "Branch: ${{ steps.fetch.outputs.branch }}"
+
+          # Save the logs to a file so the next step can parse them.
+          cat > /tmp/logs.md <<'EOF'
+          ${{ steps.fetch.outputs.logs }}
+          EOF
+
+          # Trivial auto-fix: check for the most common Rust CI failures.
+          # If we can fix any of them automatically we set autofix=true.
+          AUTO_FIX=false
+
+          # 1. Missing format / clippy fixes — `cargo fmt` and `cargo clippy --fix`
+          if grep -q "expected one of" /tmp/logs.md || grep -q "this block is empty" /tmp/logs.md; then
+            echo "Detected: trivial formatting issue. Will attempt autofix."
+            AUTO_FIX=true
+          fi
+
+          echo "autofix=$AUTO_FIX" >> $GITHUB_OUTPUT
+
+      - name: Attempt auto-fix (format + clippy)
+        if: steps.diag.outputs.autofix == 'true'
+        run: |
+          rustup toolchain install stable
+          cargo fmt --all
+          # Best-effort clippy fix (some lints are not auto-fixable)
+          cargo clippy --fix --allow-dirty --allow-staged --workspace || true
+          cargo fmt --all
+
+      - name: Commit & push auto-fix
+        if: steps.diag.outputs.autofix == 'true'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: auto-fix formatting/clippy issues"
+          branch: ${{ steps.fetch.outputs.branch }}
+
+      - name: Open issue if no autofix available
+        if: steps.diag.outputs.autofix != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = '${{ steps.fetch.outputs.branch }}';
+            const failed = '${{ steps.fetch.outputs.failed_jobs }}';
+            const logs = `${{ steps.fetch.outputs.logs }}`.slice(0, 50000);
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `CI failure on \`${branch}\` — ${failed}`,
+              body: [
+                `## CI Failure Report`,
+                ``,
+                `**Branch:** \`${branch}\`  `,
+                `**Failed jobs:** ${failed}  `,
+                `**Triggered by:** workflow_run on commit ${context.sha}`,
+                ``,
+                `### Logs`,
+                ``,
+                logs,
+                ``,
+                `### Next steps`,
+                ``,
+                `1. Click the failed job above and read the error carefully.`,
+                `2. Reproduce locally with \`cargo build --release --workspace\`.`,
+                `3. Push a fix to \`${branch}\`. CI will rerun automatically.`,
+              ].join('\n'),
+              labels: ['ci-failure', 'auto-generated'],
+            });

@@ -1,0 +1,19 @@
+[package]
+name = "nitroid-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+parking_lot.workspace = true
+directories.workspace = true
+blake3.workspace = true
+dashmap.workspace = true

@@ -1,0 +1,44 @@
+# Rust build artifacts
+/target/
+**/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / env — NEVER commit these
+.env
+.env.*
+*.pem
+*.key
+secrets/
+token.txt
+
+# Local Android system images (downloaded on first run)
+system-images/
+*.img
+*.iso
+*.qcow2
+*.raw
+
+# Instance runtime data (separate from blueprint)
+instances-data/
+!crates/instances/data/.gitkeep
+
+# Logs and crash dumps
+*.log
+*.dmp
+crash-reports/
+
+# CI artifacts
+artifacts/
+dist/

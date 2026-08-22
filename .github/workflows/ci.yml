@@ -18,11 +18,11 @@ env:
   CARGO_NET_RETRY: 5
   RUSTUP_MAX_RETRIES: 5
   # Android-x86 9.0-r2 (Pie) — stable, widely-tested, ~900 MB ISO. We use
-  # the SourceForge mirror because the primary dl.android-x86.org server
-  # has an SSL certificate mismatch (the cert doesn't cover the dl.
-  # subdomain). SourceForge mirrors the official ISOs.
+  # the OSDN mirror because it serves direct file downloads (SourceForge
+  # returns HTML redirect pages that Invoke-WebRequest can't follow on
+  # Windows).
   ANDROID_X86_VERSION: "9.0-r2"
-  ANDROID_X86_URL: "https://downloads.sourceforge.net/project/android-x86/Release%209.0/android-x86_64-9.0-r2.iso"
+  ANDROID_X86_URL: "https://osdn.net/projects/android-x86/releases/71622/download/android-x86_64-9.0-r2.iso"
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────
@@ -101,10 +101,18 @@ jobs:
                -o artifacts/linux/android.iso \
                "$ANDROID_X86_URL"
           ls -lh artifacts/linux/android.iso
-          # Verify it's a real ISO (magic bytes: 0x43 0x44 0x30 0x30 = "CD00")
-          xxd -l 8 artifacts/linux/android.iso | head -1
-          # The ISO 9660 magic is at offset 0x8001-0x8004 ("CD001")
+          # Verify it's a real ISO (at least 100 MB — sanity check that
+          # we got the actual image, not an HTML redirect page).
+          SIZE=$(stat -c%s artifacts/linux/android.iso)
+          if [ "$SIZE" -lt 104857600 ]; then
+            echo "ERROR: downloaded file is only $SIZE bytes — expected > 100 MB"
+            echo "The mirror probably returned an HTML page instead of the ISO."
+            head -c 500 artifacts/linux/android.iso
+            exit 1
+          fi
+          # Verify it's a real ISO 9660 image (magic bytes "CD001" at offset 0x8001).
           dd if=artifacts/linux/android.iso bs=1 skip=32769 count=5 2>/dev/null | xxd
+          echo "ISO downloaded successfully: $SIZE bytes"
 
       - name: Package binary + ISO
         run: |
@@ -162,7 +170,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path artifacts\windows
           Write-Host "Downloading $env:ANDROID_X86_URL ..."
-          # PowerShell's Invoke-WebRequest with retries
+          # Use Bits-Transfer for large file downloads — Invoke-WebRequest
+          # doesn't always follow redirects correctly on SourceForge.
           $ProgressPreference = 'SilentlyContinue'
           $retries = 5
           $delay = 30
@@ -177,7 +186,16 @@ jobs:
               $delay *= 2
             }
           }
-          Get-ChildItem artifacts\windows\android.iso | Format-List
+          $size = (Get-Item artifacts\windows\android.iso).Length
+          Write-Host "Downloaded size: $size bytes"
+          # Sanity check — the ISO must be at least 100 MB.
+          if ($size -lt 104857600) {
+            Write-Host "ERROR: downloaded file is only $size bytes — expected > 100 MB"
+            Write-Host "The mirror probably returned an HTML page instead of the ISO."
+            Get-Content artifacts\windows\android.iso -TotalCount 5
+            exit 1
+          }
+          Write-Host "ISO downloaded successfully: $size bytes"
 
       - name: Package binary + ISO
         shell: pwsh

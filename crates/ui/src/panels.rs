@@ -5,8 +5,8 @@ use eframe::egui;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
-use nitroid_core::paths;
-use nitroid_core::{EmulatorConfig, InstanceState, SystemImage};
+use nitroid_core::{paths, EmulatorConfig, InstanceState, SystemImage};
+use nitroid_downloader::{builtin_catalog, DownloadStage};
 use nitroid_input::{builtin_profiles, load_keymap, save_keymap, Keymap};
 
 use crate::app::{list_instances_for_display, NitroidApp, Panel};
@@ -14,6 +14,7 @@ use crate::app::{list_instances_for_display, NitroidApp, Panel};
 pub struct SetupPanel;
 pub struct InstancesPanel;
 pub struct ImagesPanel;
+pub struct DownloaderPanel;
 pub struct SettingsPanel;
 
 impl SetupPanel {
@@ -24,8 +25,8 @@ impl SetupPanel {
             ui.add_space(8.0);
             ui.label(
                 egui::RichText::new(
-                    "Nitroid needs an Android system image (Android-x86 or Bliss OS) to run. \
-                     Download one, then register it below.",
+                    "Nitroid needs an Android system image to run. You can either download \
+                     one automatically (recommended) or register an existing ISO.",
                 )
                 .color(app.theme.text_dim),
             );
@@ -39,10 +40,16 @@ impl SetupPanel {
             }
 
             ui.add_space(16.0);
-            if ui.button("Open Image Manager →").clicked() {
-                app.current_panel = Panel::Images;
-                app.needs_setup = false;
-            }
+            ui.horizontal(|ui| {
+                if ui.button("⬇ Open Downloader →").clicked() {
+                    app.current_panel = Panel::Downloader;
+                    app.needs_setup = false;
+                }
+                if ui.button("💿 Register existing ISO →").clicked() {
+                    app.current_panel = Panel::Images;
+                    app.needs_setup = false;
+                }
+            });
         });
     }
 }
@@ -188,7 +195,109 @@ impl ImagesPanel {
                         }
                     }
                 }
+                if ui.button("⬇ Open Downloader →").clicked() {
+                    app.current_panel = Panel::Downloader;
+                }
             });
+        });
+    }
+}
+
+impl DownloaderPanel {
+    pub fn render(app: &mut NitroidApp, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Image Downloader");
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new(
+                    "Download a stable Android-x86 image. The download runs in the \
+                     background — you can keep using Nitroid while it completes.",
+                )
+                .color(app.theme.text_dim),
+            );
+            ui.add_space(16.0);
+
+            let state = app.downloader.state();
+            if state.active {
+                ui.add_space(8.0);
+                ui.label(format!("Stage: {:?}", state.stage));
+                if state.total > 0 {
+                    let pct = (state.downloaded as f32 / state.total as f32).clamp(0.0, 1.0);
+                    ui.add(
+                        egui::ProgressBar::new(pct)
+                            .text(format!(
+                                "{:.1}% — {}/{}",
+                                pct * 100.0,
+                                format_size(state.downloaded),
+                                format_size(state.total)
+                            ))
+                            .desired_width(600.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("{} / s", format_size(state.bytes_per_sec)))
+                            .color(app.theme.text_dim)
+                            .small(),
+                    );
+                } else {
+                    ui.spinner();
+                    ui.label(format!("Downloaded: {}", format_size(state.downloaded)));
+                }
+                ui.add_space(8.0);
+                if let Some(candidate) = &state.candidate {
+                    ui.label(format!("Image: {}", candidate.name));
+                }
+            } else if matches!(state.stage, DownloadStage::Done) {
+                ui.label(
+                    egui::RichText::new("✓ Download complete — image registered")
+                        .color(app.theme.success)
+                        .strong(),
+                );
+                ui.add_space(8.0);
+                if ui.button("View in Images panel →").clicked() {
+                    app.current_panel = Panel::Images;
+                }
+            } else if matches!(state.stage, DownloadStage::Failed) {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "✗ Download failed: {}",
+                        state.error.as_deref().unwrap_or("unknown error")
+                    ))
+                    .color(app.theme.danger)
+                    .strong(),
+                );
+            } else {
+                ui.label("Select an image to download:");
+                ui.add_space(8.0);
+                let catalog = builtin_catalog();
+                for candidate in catalog {
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.add(egui::Label::new(
+                                egui::RichText::new(&candidate.name).strong(),
+                            ));
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "v{} · {} · {}",
+                                    candidate.version,
+                                    arch_label(candidate.arch),
+                                    format_size(candidate.size_hint)
+                                ))
+                                .color(app.theme.text_dim)
+                                .small(),
+                            );
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Download").clicked() {
+                                if let Err(e) = app.downloader.start(candidate.clone()) {
+                                    tracing::error!("failed to start download: {e}");
+                                }
+                            }
+                        });
+                    });
+                    ui.separator();
+                }
+            }
         });
     }
 }
@@ -326,9 +435,6 @@ impl SettingsPanel {
                 }
             });
 
-            // Don't keep the write lock open past the closure — replace at end.
-            // (We drop cfg here because the write() was taken on `app.config`,
-            //  which is a separate Arc.)
             let _ = cfg;
         });
     }

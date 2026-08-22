@@ -17,6 +17,8 @@ nitroid-graphics = { path = "../graphics" }
 nitroid-translation = { path = "../translation" }
 nitroid-input = { path = "../input" }
 nitroid-instances = { path = "../instances" }
+nitroid-virtio = { path = "../virtio" }
+nitroid-downloader = { path = "../downloader" }
 nitroid-ui = { path = "../ui" }
 anyhow.workspace = true
 thiserror.workspace = true

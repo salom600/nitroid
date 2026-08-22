@@ -30,9 +30,11 @@
 
 pub mod backend;
 pub mod cache;
+pub mod runner;
 
-pub use backend::{NativeBackend, Translator, TranslatorBackend};
+pub use backend::{NativeBackend, TranslatedBlock, Translator, TranslatorBackend};
 pub use cache::TranslationCache;
+pub use runner::TranslationRunner;
 
 use nitroid_core::{CpuArch, Result};
 

@@ -9,6 +9,8 @@
 //! host's built-in hypervisor to run the Android system image's kernel
 //! directly, with virtio devices for network, disk, and input.
 
+pub mod boot;
+
 #[cfg(target_os = "linux")]
 pub mod kvm;
 

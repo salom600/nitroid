@@ -64,12 +64,11 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    // If `--cli` was passed, run the CLI and exit.
+    // If a CLI flag was passed, run the CLI and exit.
     let args: Vec<String> = std::env::args().collect();
-    if args
-        .iter()
-        .any(|a| a == "--cli" || a == "--list" || a == "--help")
-    {
+    if args.iter().any(|a| {
+        a == "--cli" || a == "--list" || a == "--help" || a == "--download" || a == "--catalog"
+    }) {
         return cli::run(args, &config, &manager);
     }
 

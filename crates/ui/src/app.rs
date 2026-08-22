@@ -1,5 +1,5 @@
 //! The top-level egui app — wires together the instance manager, keymap
-//! store, and the side navigation between panels.
+//! store, image downloader, and the side navigation between panels.
 
 use std::sync::Arc;
 
@@ -7,10 +7,11 @@ use eframe::egui;
 use parking_lot::RwLock;
 
 use nitroid_core::{EmulatorConfig, InstanceConfig, InstanceState};
+use nitroid_downloader::{builtin_catalog, DownloadStage, Downloader};
 use nitroid_input::{builtin_profiles, Keymap};
 use nitroid_instances::InstanceManager;
 
-use crate::panels::{ImagesPanel, InstancesPanel, SettingsPanel, SetupPanel};
+use crate::panels::{DownloaderPanel, ImagesPanel, InstancesPanel, SettingsPanel, SetupPanel};
 use crate::theme::Theme;
 
 /// Which panel is currently visible in the main content area.
@@ -19,6 +20,7 @@ pub enum Panel {
     Setup,
     Instances,
     Images,
+    Downloader,
     Settings,
 }
 
@@ -27,6 +29,7 @@ pub struct NitroidApp {
     pub config: Arc<RwLock<EmulatorConfig>>,
     pub manager: Arc<InstanceManager>,
     pub active_keymap: Arc<RwLock<Keymap>>,
+    pub downloader: Arc<Downloader>,
     pub current_panel: Panel,
     pub show_perf_overlay: bool,
     pub selected_instance: Option<String>,
@@ -34,6 +37,9 @@ pub struct NitroidApp {
     /// "first-run setup" panel.
     pub needs_setup: bool,
     pub backend_info: Option<String>,
+    /// Refresh counter — bumped on every frame to trigger UI re-polling of
+    /// async state (instance list, downloader, etc.).
+    pub frame_counter: u64,
 }
 
 impl NitroidApp {
@@ -44,6 +50,7 @@ impl NitroidApp {
     ) -> Self {
         let manager = Arc::new(manager);
         let needs_setup = manager.list_images().is_empty();
+        let downloader = Arc::new(Downloader::new());
 
         // Pick a default keymap from the built-in profiles — PUBG Mobile is
         // a sane default since most users install Nitroid to play games like
@@ -59,6 +66,7 @@ impl NitroidApp {
             config: Arc::new(RwLock::new(config)),
             manager,
             active_keymap: Arc::new(RwLock::new(default_keymap)),
+            downloader,
             current_panel: if needs_setup {
                 Panel::Setup
             } else {
@@ -68,6 +76,7 @@ impl NitroidApp {
             selected_instance: None,
             needs_setup,
             backend_info,
+            frame_counter: 0,
         }
     }
 
@@ -89,6 +98,7 @@ impl NitroidApp {
                     (Panel::Setup, "⚙  Setup", self.needs_setup),
                     (Panel::Instances, "▢  Instances", !self.needs_setup),
                     (Panel::Images, "💿  System Images", true),
+                    (Panel::Downloader, "⬇  Downloader", true),
                     (Panel::Settings, "✦  Settings", true),
                 ];
 
@@ -129,6 +139,23 @@ impl NitroidApp {
                 ui.label(format!("Running instances: {running}"));
                 ui.label(format!("Total instances: {}", instances.len()));
                 ui.label(format!("Images: {}", self.manager.list_images().len()));
+                let dl_state = self.downloader.state();
+                if dl_state.active {
+                    ui.label(format!(
+                        "Downloader: {} ({:.1}%)",
+                        match dl_state.stage {
+                            DownloadStage::Downloading => "downloading",
+                            DownloadStage::Verifying => "verifying",
+                            DownloadStage::Registering => "registering",
+                            _ => "?",
+                        },
+                        if dl_state.total > 0 {
+                            100.0 * dl_state.downloaded as f32 / dl_state.total as f32
+                        } else {
+                            0.0
+                        }
+                    ));
+                }
             });
     }
 }
@@ -136,6 +163,13 @@ impl NitroidApp {
 impl eframe::App for NitroidApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.theme.install(ctx);
+        self.frame_counter += 1;
+
+        // If a download is active, request continuous repaints so the
+        // progress bar updates in real time.
+        if self.downloader.state().active {
+            ctx.request_repaint();
+        }
 
         self.render_sidebar(ctx);
 
@@ -145,6 +179,7 @@ impl eframe::App for NitroidApp {
             Panel::Setup => SetupPanel::render(self, ctx),
             Panel::Instances => InstancesPanel::render(self, ctx, clipboard.as_deref()),
             Panel::Images => ImagesPanel::render(self, ctx),
+            Panel::Downloader => DownloaderPanel::render(self, ctx),
             Panel::Settings => SettingsPanel::render(self, ctx),
         }
 
@@ -157,4 +192,12 @@ pub fn list_instances_for_display(
     manager: &InstanceManager,
 ) -> Vec<(InstanceConfig, InstanceState)> {
     manager.list_instances()
+}
+
+/// Helper used by the downloader panel.
+pub fn catalog_for_display() -> Vec<(String, String, u64)> {
+    builtin_catalog()
+        .into_iter()
+        .map(|c| (c.name, c.version, c.size_hint))
+        .collect()
 }

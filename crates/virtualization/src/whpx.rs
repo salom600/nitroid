@@ -22,11 +22,10 @@ use tracing::{info, warn};
 use windows::core::PCSTR;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::Hypervisor::{
-    WHvCreatePartition, WHvCreateVirtualProcessor, WHvDeletePartition,
-    WHvDeleteVirtualProcessor, WHvMapGpaRange, WHvPartitionPropertyCodeProcessorCount,
-    WHvRunVirtualProcessor, WHvSetPartitionProperty, WHvMapGpaRangeFlagRead,
-    WHvMapGpaRangeFlagWrite, WHvMapGpaRangeFlagExecute, WHV_PARTITION_HANDLE,
-    WHV_PARTITION_PROPERTY,
+    WHvCreatePartition, WHvCreateVirtualProcessor, WHvDeletePartition, WHvDeleteVirtualProcessor,
+    WHvMapGpaRange, WHvMapGpaRangeFlagExecute, WHvMapGpaRangeFlagRead, WHvMapGpaRangeFlagWrite,
+    WHvPartitionPropertyCodeProcessorCount, WHvRunVirtualProcessor, WHvSetPartitionProperty,
+    WHV_PARTITION_HANDLE, WHV_PARTITION_PROPERTY,
 };
 use windows::Win32::System::LibraryLoader::LoadLibraryA;
 
@@ -47,7 +46,8 @@ impl WhpxBackend {
     pub fn new() -> Result<Self> {
         if !is_available() {
             return Err(CoreError::VirtualizationUnavailable(
-                "WHPX not available. Install Hyper-V from 'Turn Windows features on or off'.".into(),
+                "WHPX not available. Install Hyper-V from 'Turn Windows features on or off'."
+                    .into(),
             ));
         }
         Ok(Self { _loaded: true })
@@ -301,12 +301,7 @@ fn run_whpx_vcpu(vm: Arc<WhpxVm>, vcpu_id: u32) {
         // ExitReason field is always near the start. We log it for diagnostics
         // but don't dispatch on specific types yet — that's the follow-up
         // work that requires Windows desktop debugging.
-        let exit_type = u32::from_le_bytes([
-            exit_buf[0],
-            exit_buf[1],
-            exit_buf[2],
-            exit_buf[3],
-        ]);
+        let exit_type = u32::from_le_bytes([exit_buf[0], exit_buf[1], exit_buf[2], exit_buf[3]]);
         tracing::debug!(vcpu_id, exit_type, "WHPX exit reason");
     }
     info!(vcpu_id, "WHPX vCPU thread exiting");
